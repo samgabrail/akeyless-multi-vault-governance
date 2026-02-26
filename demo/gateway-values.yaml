@@ -1,0 +1,51 @@
+# =============================================================================
+# Akeyless API Gateway - Helm Values (Demo / Home Lab)
+# =============================================================================
+#
+# Chart: akeyless/akeyless-api-gateway
+#
+# Add the Helm repository:
+#   helm repo add akeyless https://akeyless-community.github.io/helm-charts
+#   helm repo update
+#
+# Pre-create the credentials secret before deploying:
+#   kubectl create secret generic akeyless-admin-credentials \
+#     --from-literal=admin-access-key=<YOUR_AKEYLESS_ACCESS_KEY> \
+#     --namespace <YOUR_NAMESPACE>
+#
+# Deploy with:
+#   helm upgrade --install akeyless-gateway akeyless/akeyless-api-gateway \
+#     --namespace <YOUR_NAMESPACE> \
+#     --create-namespace \
+#     --values demo/gateway-values.yaml
+#
+# IMPORTANT: Replace ALL <YOUR_...> placeholder values before deploying.
+# =============================================================================
+
+akeylessUserAuth:
+  # Your Akeyless access ID (format: p-xxxxxxxxxxxx)
+  adminAccessId: "<YOUR_AKEYLESS_ACCESS_ID>"
+
+  # Kubernetes secret containing the admin credentials
+  adminCredentialsSecretName: "akeyless-admin-credentials"
+
+  # Key within the secret that holds the access key / password
+  adminCredentialsSecretKey: "admin-access-key"
+
+service:
+  type: LoadBalancer
+  ports:
+    - name: web
+      port: 8000
+      targetPort: 8000
+    - name: hvp
+      port: 8200
+      targetPort: 8200
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
