@@ -58,7 +58,7 @@ akeyless auth \
 | Variable | Default | Description |
 |---|---|---|
 | `VAULT_ADDR_BACKEND` | `http://127.0.0.1:8200` | Address of backend team's Vault |
-| `VAULT_ADDR_PAYMENTS` | `http://127.0.0.1:8201` | Address of payments team's Vault |
+| `VAULT_ADDR_PAYMENTS` | `http://127.0.0.1:8202` | Address of payments team's Vault |
 | `VAULT_TOKEN` | `root` | Root token (same for both dev instances) |
 | `AKEYLESS_GATEWAY_URL` | _(required)_ | External URL of your deployed Gateway |
 | `USC_BACKEND` | `demo-vault-usc-backend` | USC name for backend Vault |
@@ -68,7 +68,7 @@ Quick-copy block:
 
 ```bash
 export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
-export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8201'
+export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8202'
 export VAULT_TOKEN='root'
 export AKEYLESS_GATEWAY_URL='https://<your-gateway-external-ip>:8000'
 export USC_BACKEND='demo-vault-usc-backend'
@@ -88,7 +88,7 @@ source ./demo/setup-vault-dev.sh
 What this does:
 
 - Starts **backend Vault** on port 8200 with root token `root`
-- Starts **payments Vault** on port 8201 with root token `root`
+- Starts **payments Vault** on port 8202 with root token `root`
 - Waits for both to report healthy
 - Seeds backend Vault with:
   - `secret/myapp/db-password` — `password=sup3r-s3cret-db-pass`
@@ -165,7 +165,7 @@ What this creates:
 | Resource | Name | Purpose |
 |---|---|---|
 | Vault Target | `demo-vault-target-backend` | Connection to backend Vault (port 8200) |
-| Vault Target | `demo-vault-target-payments` | Connection to payments Vault (port 8201) |
+| Vault Target | `demo-vault-target-payments` | Connection to payments Vault (port 8202) |
 | USC | `demo-vault-usc-backend` | Akeyless window into backend Vault |
 | USC | `demo-vault-usc-payments` | Akeyless window into payments Vault |
 | Read-only role | `demo-readonly-role` | `read` + `list` on paths under both USCs |
@@ -195,7 +195,7 @@ vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
 
 # Payments team's Vault — completely separate cluster
-export VAULT_ADDR='http://127.0.0.1:8201'
+export VAULT_ADDR='http://127.0.0.1:8202'
 vault kv list secret/payments
 vault kv get secret/payments/stripe-key
 vault kv get secret/payments/db-url
@@ -251,7 +251,7 @@ The Akeyless write went through the Gateway directly into backend Vault's KV eng
 ### Chapter 4b: Two-Way Sync — Vault to Akeyless (Payments)
 
 ```bash
-export VAULT_ADDR='http://127.0.0.1:8201'
+export VAULT_ADDR='http://127.0.0.1:8202'
 vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
 akeyless usc list --usc-name demo-vault-usc-payments

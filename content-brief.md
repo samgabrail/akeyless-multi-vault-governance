@@ -200,7 +200,7 @@ Show: Numbered chapter list
 *Using CLI here but most likely will use UI as it demos better.*
 
 **Chapter 1 (~1 min 15 sec): Two isolated Vault instances — no shared governance**
-Two Vault dev servers running: backend team (port 8200, `secret/myapp/`) and payments team (port 8201, `secret/payments/`). Show `vault kv list` and `vault kv get` against each. Standard Vault — no Akeyless yet. Establishes the governance gap: two clusters, no shared audit, no shared RBAC.
+Two Vault dev servers running: backend team (port 8200, `secret/myapp/`) and payments team (port 8202, `secret/payments/`). Show `vault kv list` and `vault kv get` against each. Standard Vault — no Akeyless yet. Establishes the governance gap: two clusters, no shared audit, no shared RBAC.
 
 **Chapter 2 (~45 sec): One Gateway bridges both**
 `kubectl get pods -n akeyless`. One Gateway pod connected to both Vault instances via separate Vault Targets and USCs.
@@ -212,7 +212,7 @@ Two Vault dev servers running: backend team (port 8200, `secret/myapp/`) and pay
 `akeyless usc create` on the backend USC. Then `vault kv get` against port 8200 confirms the secret physically exists in backend Vault.
 
 **Chapter 4b (~1 min): Two-Way Sync  - Vault → Akeyless (payments)**
-`vault kv put` natively into payments Vault (port 8201). Then `akeyless usc list` and `akeyless usc get` on `demo-vault-usc-payments` pick it up immediately — no sync job, no polling delay.
+`vault kv put` natively into payments Vault (port 8202). Then `akeyless usc list` and `akeyless usc get` on `demo-vault-usc-payments` pick it up immediately — no sync job, no polling delay.
 
 **Chapter 5 (~1 min 30 sec): HVP  - vault CLI with zero code changes**
 `export VAULT_ADDR='https://hvp.akeyless.io'`. Same `vault kv get` commands. Same output. Zero application changes. Akeyless is now the backend.

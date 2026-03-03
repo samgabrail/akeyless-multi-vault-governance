@@ -7,7 +7,7 @@ set -euo pipefail
 # Starts TWO HashiCorp Vault dev instances representing two independent teams:
 #
 #   Vault 1 — "backend" team   → port 8200, log: /tmp/vault-backend.log
-#   Vault 2 — "payments" team  → port 8201, log: /tmp/vault-payments.log
+#   Vault 2 — "payments" team  → port 8202, log: /tmp/vault-payments.log
 #
 # Each instance is a fully independent Vault cluster. Neither knows the other
 # exists. This is the starting point for the multi-vault governance demo.
@@ -20,7 +20,7 @@ set -euo pipefail
 
 VAULT_TOKEN="root"
 VAULT_ADDR_BACKEND="http://127.0.0.1:8200"
-VAULT_ADDR_PAYMENTS="http://127.0.0.1:8201"
+VAULT_ADDR_PAYMENTS="http://127.0.0.1:8202"
 LOG_BACKEND="/tmp/vault-backend.log"
 LOG_PAYMENTS="/tmp/vault-payments.log"
 
@@ -48,28 +48,16 @@ vault server \
 export VAULT_PID_BACKEND=$!
 echo "      PID: ${VAULT_PID_BACKEND}"
 
-# ---------------------------------------------------------------------------
-# Start Vault 2 — payments team
-# ---------------------------------------------------------------------------
-echo "[2/6] Starting payments Vault (port 8201)..."
-
-vault server \
-  -dev \
-  -dev-root-token-id="${VAULT_TOKEN}" \
-  -dev-listen-address="127.0.0.1:8201" \
-  >"${LOG_PAYMENTS}" 2>&1 &
-
-export VAULT_PID_PAYMENTS=$!
-echo "      PID: ${VAULT_PID_PAYMENTS}"
-
-# Trap to clean up both on exit if something goes wrong during this script
-trap 'kill "${VAULT_PID_BACKEND}" "${VAULT_PID_PAYMENTS}" 2>/dev/null || true' EXIT
+# Trap to clean up on exit if something goes wrong during this script
+trap 'kill "${VAULT_PID_BACKEND}" 2>/dev/null || true; kill "${VAULT_PID_PAYMENTS:-0}" 2>/dev/null || true' EXIT
 
 # ---------------------------------------------------------------------------
-# Wait for Vault 1 to become ready
+# Wait for Vault 1 to become ready before starting Vault 2.
+# Both instances try to write ~/.vault-token on startup; starting them
+# sequentially avoids the rename race condition that causes Vault 2 to exit.
 # ---------------------------------------------------------------------------
 echo ""
-echo "[3/6] Waiting for backend Vault to become ready..."
+echo "[2/6] Waiting for backend Vault to become ready..."
 
 MAX_WAIT=30
 ELAPSED=0
@@ -82,6 +70,21 @@ until VAULT_ADDR="${VAULT_ADDR_BACKEND}" VAULT_TOKEN="${VAULT_TOKEN}" vault stat
   ELAPSED=$(( ELAPSED + 1 ))
 done
 echo "      Ready (${ELAPSED}s)."
+
+# ---------------------------------------------------------------------------
+# Start Vault 2 — payments team (after Vault 1 is fully up)
+# ---------------------------------------------------------------------------
+echo ""
+echo "[3/6] Starting payments Vault (port 8202)..."
+
+vault server \
+  -dev \
+  -dev-root-token-id="${VAULT_TOKEN}" \
+  -dev-listen-address="127.0.0.1:8202" \
+  >"${LOG_PAYMENTS}" 2>&1 &
+
+export VAULT_PID_PAYMENTS=$!
+echo "      PID: ${VAULT_PID_PAYMENTS}"
 
 # ---------------------------------------------------------------------------
 # Wait for Vault 2 to become ready
@@ -153,7 +156,7 @@ echo "    Secrets:"
 echo "      secret/myapp/db-password  (key: password)"
 echo "      secret/myapp/api-key      (key: api_key)"
 echo ""
-echo "  Payments Vault (port 8201)"
+echo "  Payments Vault (port 8202)"
 echo "    PID  : ${VAULT_PID_PAYMENTS}"
 echo "    Log  : ${LOG_PAYMENTS}"
 echo "    Secrets:"

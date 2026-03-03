@@ -160,8 +160,8 @@ vault kv list secret/myapp
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
 
-# Payments team's Vault (port 8201) — completely separate cluster
-export VAULT_ADDR='http://127.0.0.1:8201'
+# Payments team's Vault (port 8202) — completely separate cluster
+export VAULT_ADDR='http://127.0.0.1:8202'
 
 vault kv list secret/payments
 vault kv get secret/payments/stripe-key
@@ -176,7 +176,7 @@ Let's start from the beginning — no Akeyless in the picture yet. We have two c
 
 This first one on port 8200 is the backend team's Vault. I'll list what's under `secret/myapp` — there's `db-password` and `api-key`. Standard KV secrets, standard Vault.
 
-Now let me switch to port 8201. This is the payments team's Vault — a completely separate cluster. Different secrets, different KV structure: `stripe-key` and `db-url` under `secret/payments`.
+Now let me switch to port 8202. This is the payments team's Vault — a completely separate cluster. Different secrets, different KV structure: `stripe-key` and `db-url` under `secret/payments`.
 
 These two clusters have nothing in common. No shared policies. No shared audit log. If a CISO asks "who accessed the payments Stripe key in the last 30 days," the answer comes from this cluster's logs only — and only if Vault Enterprise is configured to ship them somewhere. The backend team's activity is completely invisible from here, and vice versa. This is the governance gap we're going to close.
 
@@ -202,7 +202,7 @@ Now let's look at what's running on the Kubernetes side. I'll query the `akeyles
 
 You can see the Akeyless Gateway pod is running. This is the component that lives inside your infrastructure — it's the bridge between the Akeyless control plane in the cloud and your internal resources. In a real deployment this would be sitting inside your private network, with network access to your Vault instance but no inbound internet exposure required.
 
-The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8201 — and a Universal Secret Connector on top of each. One Gateway, two clusters. That's the setup that lets the next steps work. Let's go use it.
+The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8202 — and a Universal Secret Connector on top of each. One Gateway, two clusters. That's the setup that lets the next steps work. Let's go use it.
 
 ---
 
@@ -292,7 +292,7 @@ Terminal showing:
 
 ```bash
 # Write natively to the payments Vault
-export VAULT_ADDR='http://127.0.0.1:8201'
+export VAULT_ADDR='http://127.0.0.1:8202'
 vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
 # Verify Akeyless sees it immediately
@@ -309,7 +309,7 @@ Output showing the new secret is immediately visible through USC.
 
 Now the reverse — and this time I'll use the payments Vault to make it clear this works across clusters.
 
-I'll write a secret directly into the payments Vault on port 8201 with `vault kv put`. Native Vault, no Akeyless involved in the write.
+I'll write a secret directly into the payments Vault on port 8202 with `vault kv put`. Native Vault, no Akeyless involved in the write.
 
 Now switch to the Akeyless CLI. `akeyless usc list` on the payments connector — and `created-from-vault` is already there. `akeyless usc get` — same value.
 

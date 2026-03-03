@@ -8,7 +8,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # export VAULT_ADDR='http://127.0.0.1:8200'    # backend vault (active default)
 # export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
-# export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8201'
+# export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8202'
 # export VAULT_TOKEN='root'
 # export USC_BACKEND='demo-vault-usc-backend'
 # export USC_PAYMENTS='demo-vault-usc-payments'
@@ -25,8 +25,8 @@ vault kv list secret/myapp
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
 
-# Payments team's Vault (port 8201) — completely separate cluster
-export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8201}"
+# Payments team's Vault (port 8202) — completely separate cluster
+export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 vault kv list secret/payments
 vault kv get secret/payments/stripe-key
 vault kv get secret/payments/db-url
@@ -83,7 +83,7 @@ vault kv get secret/myapp/created-from-akeyless
 echo "--- Chapter 4b: Create in payments Vault → visible via Akeyless USC ---"
 
 # Write directly into the payments Vault
-export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8201}"
+export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
 # Verify Akeyless sees it immediately — no sync job, no polling

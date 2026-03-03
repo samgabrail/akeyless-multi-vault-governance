@@ -5,7 +5,7 @@
 # Connects Akeyless to TWO independently-running Vault dev servers:
 #
 #   Vault 1 — backend team   (default: http://127.0.0.1:8200)
-#   Vault 2 — payments team  (default: http://127.0.0.1:8201)
+#   Vault 2 — payments team  (default: http://127.0.0.1:8202)
 #
 # Each Vault gets its own Vault Target and Universal Secret Connector (USC).
 # A single set of Akeyless RBAC roles governs access to secrets across both,
@@ -21,7 +21,7 @@
 #
 # Optional environment variables (defaults shown):
 #   VAULT_ADDR_BACKEND         http://127.0.0.1:8200
-#   VAULT_ADDR_PAYMENTS        http://127.0.0.1:8201
+#   VAULT_ADDR_PAYMENTS        http://127.0.0.1:8202
 #   VAULT_TOKEN                root
 #
 # NOTE: VAULT_ADDR_BACKEND and VAULT_ADDR_PAYMENTS are the addresses the
@@ -57,7 +57,7 @@ DENIED_AUTH_NAME="demo-denied-auth"
 # Defaults for optional env vars
 # ---------------------------------------------------------------------------
 VAULT_ADDR_BACKEND="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
-VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8201}"
+VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_TOKEN="${VAULT_TOKEN:-root}"
 
 # ---------------------------------------------------------------------------
