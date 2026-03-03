@@ -2,20 +2,26 @@
 
 ## Overview
 
-This demo proves that Akeyless can act as a centralized governance layer over an existing HashiCorp Vault deployment — with no migration required. Using the Universal Secret Connector (USC), secrets remain in-place inside Vault while Akeyless provides unified visibility, write-through management, and policy enforcement. The HashiCorp Vault Proxy (HVP) then shows that existing tooling and application code continues to work against the Akeyless backend with a single environment variable change, and the audit trail chapter demonstrates that every operation — reads, writes, HVP calls, and RBAC denials — is captured in one place.
+This demo shows Akeyless acting as a centralized governance layer over **two independent HashiCorp Vault instances** — with no migration required. The two Vault instances represent separate teams in an enterprise: a backend team and a payments team, each running their own Vault cluster with their own secrets.
+
+Neither Vault instance knows the other exists. There is no shared policy, no shared audit log, and no cross-team visibility — until Akeyless is connected. Once connected, a single Akeyless control plane governs both: one RBAC model, one audit trail, zero secrets moved.
+
+The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue using the `vault` CLI unchanged while Akeyless handles authentication, authorization, and audit logging behind the scenes.
 
 ---
 
 ## What You'll See
 
-- **Chapter 1 — Vault baseline**: Vault is running with real secrets seeded before any Akeyless interaction, establishing that there is nothing unusual about this Vault instance.
-- **Chapter 2 — Gateway health check**: The Akeyless Gateway is deployed on Kubernetes and reachable; confirms the bridge between Vault and the Akeyless control plane is live.
-- **Chapter 3 — Manage Vault secrets from Akeyless**: The USC exposes existing Vault secrets through the Akeyless API without moving them, proving governance without migration.
-- **Chapter 4a — Two-way sync (Akeyless → Vault)**: A secret created through the Akeyless USC appears immediately in Vault natively, proving write-through to the source system.
-- **Chapter 4b — Two-way sync (Vault → Akeyless)**: A secret written directly to Vault is immediately visible through the USC, proving Akeyless stays in sync without a scheduled job.
-- **Chapter 5 — HVP (zero code changes)**: One `VAULT_ADDR` change routes existing `vault` CLI commands through Akeyless HVP, demonstrating full Vault CLI compatibility.
-- **Chapter 6 — RBAC denial**: An identity with an explicit deny policy is blocked from reading a secret, proving that Akeyless policy enforcement sits in front of Vault regardless of Vault's own ACLs.
-- **Chapter 7 — Centralized audit trail**: Every operation from the session — USC reads, writes, HVP calls, and the RBAC denial — is visible in the Akeyless audit log as a unified record.
+| Chapter | What It Proves |
+|---|---|
+| **1 — Two Vault baselines** | Two separate Vault instances, each with real secrets, no shared governance |
+| **2 — Gateway health check** | One Akeyless Gateway bridges both Vault instances to the control plane |
+| **3 — Both Vaults from one control plane** | USC lists and reads secrets from both clusters — same CLI, same policies, same audit trail |
+| **4a — Two-way sync (Akeyless → Vault)** | Write a secret via Akeyless USC; it lands natively in backend Vault |
+| **4b — Two-way sync (Vault → Akeyless)** | Write natively in payments Vault; Akeyless sees it immediately with no sync job |
+| **5 — HVP (zero code changes)** | One `VAULT_ADDR` change routes existing `vault` CLI commands through Akeyless |
+| **6 — RBAC denial (both clusters)** | One Akeyless policy denies access to secrets across both Vault clusters |
+| **7 — Unified audit trail** | All operations from both clusters appear in one audit log |
 
 ---
 
@@ -30,14 +36,14 @@ This demo proves that Akeyless can act as a centralized governance layer over an
 | `kubectl` | For inspecting Gateway pods and services |
 | `helm` | For deploying the Akeyless Gateway chart |
 
-You also need an Akeyless account. The free tier is sufficient for this demo: [https://console.akeyless.io](https://console.akeyless.io)
+You also need an Akeyless account. The free tier is sufficient: [https://console.akeyless.io](https://console.akeyless.io)
 
 ### Akeyless Setup
 
 1. Log in to [https://console.akeyless.io](https://console.akeyless.io).
-2. Navigate to **Auth Methods** and create a new **API Key** auth method. Give it a name you will remember (e.g., `demo-admin-auth`).
-3. Copy the **Access ID** (format: `p-xxxxxxxxxxxx`) and **Access Key** — you will need both throughout the demo.
-4. Authenticate the CLI before running any of the scripts below:
+2. Navigate to **Auth Methods** and create a new **API Key** auth method (e.g., `demo-admin-auth`).
+3. Copy the **Access ID** (format: `p-xxxxxxxxxxxx`) and **Access Key**.
+4. Authenticate the CLI:
 
 ```bash
 akeyless auth \
@@ -45,62 +51,60 @@ akeyless auth \
   --access-key <your-access-key>
 ```
 
-> The CLI stores the resulting token in `~/.akeyless/` and reuses it for subsequent commands. If the token expires during the demo, re-run the `akeyless auth` command above.
-
 ---
 
 ## Environment Variables
 
-Set these in your terminal before running any demo scripts. The scripts will read from the environment and will fail early with a clear error message if a required variable is missing.
-
 | Variable | Default | Description |
 |---|---|---|
-| `VAULT_ADDR` | `http://127.0.0.1:8200` | Address of the Vault dev server |
-| `VAULT_TOKEN` | `root` | Root token for the Vault dev server |
-| `AKEYLESS_GATEWAY_URL` | _(required)_ | External URL of your deployed Gateway, e.g. `https://192.168.1.100:8000` |
-| `USC_NAME` | `demo-vault-usc` | Name of the USC created by `akeyless-setup.sh` |
+| `VAULT_ADDR_BACKEND` | `http://127.0.0.1:8200` | Address of backend team's Vault |
+| `VAULT_ADDR_PAYMENTS` | `http://127.0.0.1:8201` | Address of payments team's Vault |
+| `VAULT_TOKEN` | `root` | Root token (same for both dev instances) |
+| `AKEYLESS_GATEWAY_URL` | _(required)_ | External URL of your deployed Gateway |
+| `USC_BACKEND` | `demo-vault-usc-backend` | USC name for backend Vault |
+| `USC_PAYMENTS` | `demo-vault-usc-payments` | USC name for payments Vault |
 
-Quick-copy block for your terminal:
+Quick-copy block:
 
 ```bash
-export VAULT_ADDR='http://127.0.0.1:8200'
+export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
+export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8201'
 export VAULT_TOKEN='root'
 export AKEYLESS_GATEWAY_URL='https://<your-gateway-external-ip>:8000'
-export USC_NAME='demo-vault-usc'
+export USC_BACKEND='demo-vault-usc-backend'
+export USC_PAYMENTS='demo-vault-usc-payments'
 ```
+
+> **Gateway networking note:** `VAULT_ADDR_BACKEND` and `VAULT_ADDR_PAYMENTS` are the addresses your Akeyless Gateway uses to reach the Vault instances. If your Gateway runs on Kubernetes and Vault runs on your local machine, use your host machine's network IP (e.g., `http://192.168.1.100:8200`) rather than `127.0.0.1`. On Docker Desktop, `http://host.docker.internal:8200` works.
 
 ---
 
-## Step 1: Start Vault in Dev Mode
-
-Run the setup script from the repo root:
+## Step 1: Start Both Vault Dev Servers
 
 ```bash
-./demo/setup-vault-dev.sh
+source ./demo/setup-vault-dev.sh
 ```
 
-> Run this with `source` if you want `VAULT_PID` exported into your current shell so you can stop Vault with `kill $VAULT_PID` at the end:
-> ```bash
-> source ./demo/setup-vault-dev.sh
-> ```
+What this does:
 
-What this script does:
+- Starts **backend Vault** on port 8200 with root token `root`
+- Starts **payments Vault** on port 8201 with root token `root`
+- Waits for both to report healthy
+- Seeds backend Vault with:
+  - `secret/myapp/db-password` — `password=sup3r-s3cret-db-pass`
+  - `secret/myapp/api-key` — `api_key=akl-demo-api-key-12345`
+- Seeds payments Vault with:
+  - `secret/payments/stripe-key` — `key=sk_demo_payments_abc123`
+  - `secret/payments/db-url` — `url=postgres://payments:...`
+- Exports `VAULT_PID_BACKEND` and `VAULT_PID_PAYMENTS` into your shell
 
-- Starts `vault server -dev` at `127.0.0.1:8200` with root token `root`
-- Waits up to 30 seconds for Vault to report healthy
-- Confirms that the KV v2 engine is mounted at `secret/` (it is by default in dev mode)
-- Seeds two demo secrets:
-  - `secret/myapp/db-password` — key `password`, value `sup3r-s3cret-db-pass`
-  - `secret/myapp/api-key` — key `api_key`, value `akl-demo-api-key-12345`
-- Prints a summary including the Vault PID and log file path (`/tmp/vault-dev.log`)
-
-**Keep this terminal open.** The Vault process must remain running throughout the demo. If you sourced the script, `VAULT_PID` is available in your shell for the cleanup step.
+**Keep this terminal open.** Both Vault processes must remain running throughout the demo.
 
 ---
 
 ## Step 2: Deploy Akeyless Gateway on Kubernetes
 
-The Gateway is the bridge between your Kubernetes cluster network and the Akeyless control plane. It is also what the USC uses to reach your local Vault server.
+One Gateway handles connections to both Vault instances.
 
 ### 2a: Add the Helm chart repository
 
@@ -111,8 +115,6 @@ helm repo update
 
 ### 2b: Create the credentials secret
 
-Replace `<YOUR_AKEYLESS_ACCESS_KEY>` with the access key from your Akeyless auth method.
-
 ```bash
 kubectl create secret generic akeyless-admin-credentials \
   -n akeyless --create-namespace \
@@ -121,14 +123,12 @@ kubectl create secret generic akeyless-admin-credentials \
 
 ### 2c: Edit gateway-values.yaml
 
-Open `demo/gateway-values.yaml` and set `adminAccessId` to your Access ID:
+Set `adminAccessId` to your Access ID:
 
 ```yaml
 akeylessUserAuth:
   adminAccessId: "p-xxxxxxxxxxxx"   # <-- replace this
 ```
-
-> The file already has placeholder comments marking every value that must be changed. Do not deploy without updating `adminAccessId` — the Gateway will fail to authenticate.
 
 ### 2d: Deploy the Gateway
 
@@ -144,128 +144,127 @@ helm upgrade --install akeyless-gateway akeyless/akeyless-api-gateway \
 kubectl get svc -n akeyless
 ```
 
-Look for the `EXTERNAL-IP` column on the `akeyless-gateway` service. That value is your `AKEYLESS_GATEWAY_URL`. Set it now:
+Set `AKEYLESS_GATEWAY_URL` to the external IP:
 
 ```bash
 export AKEYLESS_GATEWAY_URL='https://<EXTERNAL-IP>:8000'
 ```
 
-> If `EXTERNAL-IP` shows `<pending>`, your cluster's load balancer is still provisioning. Wait a minute and re-run `kubectl get svc -n akeyless`. On a local cluster (e.g., kind or minikube) you may need to use port-forwarding or a NodePort instead.
-
 ---
 
 ## Step 3: Configure Akeyless Resources
 
-With both `VAULT_ADDR` and `AKEYLESS_GATEWAY_URL` set, run the Akeyless setup script:
+With `AKEYLESS_GATEWAY_URL` (and optionally `VAULT_ADDR_BACKEND` / `VAULT_ADDR_PAYMENTS`) set:
 
 ```bash
-export AKEYLESS_GATEWAY_URL='https://<your-gateway-external-ip>:8000'
 ./demo/akeyless-setup.sh
 ```
 
-What this script creates:
+What this creates:
 
 | Resource | Name | Purpose |
 |---|---|---|
-| HashiCorp Vault Target | `demo-vault-target` | Stores the connection details and token for your Vault dev server |
-| Universal Secret Connector | `demo-vault-usc` | Bridges the Vault target into the Akeyless secret namespace |
-| Read-only RBAC role | `demo-readonly-role` | Grants `read` and `list` on all paths under `demo-vault-usc/*` |
-| Read-only API key auth | `demo-readonly-auth` | API key identity associated with the read-only role |
-| Denied RBAC role | `demo-denied-role` | Explicit `deny` on all paths under `demo-vault-usc/*` |
-| Denied API key auth | `demo-denied-auth` | API key identity associated with the denied role — used in Chapter 6 |
+| Vault Target | `demo-vault-target-backend` | Connection to backend Vault (port 8200) |
+| Vault Target | `demo-vault-target-payments` | Connection to payments Vault (port 8201) |
+| USC | `demo-vault-usc-backend` | Akeyless window into backend Vault |
+| USC | `demo-vault-usc-payments` | Akeyless window into payments Vault |
+| Read-only role | `demo-readonly-role` | `read` + `list` on paths under both USCs |
+| Read-only auth | `demo-readonly-auth` | API key identity for read-only role |
+| Denied role | `demo-denied-role` | `deny` on paths under both USCs |
+| Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 6) |
 
-The script prints a summary at the end showing all created resources. After running `akeyless-setup.sh`, retrieve the Access IDs and Access Keys for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) — you will need the denied identity's credentials for Chapter 6.
+Retrieve the Access ID and Key for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) before running Chapter 6.
 
 ---
 
 ## Demo Walkthrough
 
-Each chapter below corresponds to a chapter in the accompanying video. All commands are also collected in `demo/demo-commands.sh`. You can source that file and run individual sections, or copy-paste directly from this document.
-
-```bash
-# Optional: source the commands file so each chapter's commands are available as-is
-source demo/demo-commands.sh
-```
+All commands are in `demo/demo-commands.sh`. Source it or copy-paste by chapter.
 
 ---
 
-### Chapter 1: Verify Vault Has Our Secrets
+### Chapter 1: Two Vault Instances — No Shared Governance
 
-Establish the baseline: Vault is running normally with secrets that exist entirely independent of Akeyless.
+Establish the baseline: two independent Vault clusters with real secrets and no visibility between them.
 
 ```bash
+# Backend team's Vault
+export VAULT_ADDR='http://127.0.0.1:8200'
 vault kv list secret/myapp
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
+
+# Payments team's Vault — completely separate cluster
+export VAULT_ADDR='http://127.0.0.1:8201'
+vault kv list secret/payments
+vault kv get secret/payments/stripe-key
+vault kv get secret/payments/db-url
 ```
 
-Expected output includes `db-password` and `api-key` listed under `myapp/`, and the secret data fields (`password`, `api_key`) visible in the `vault kv get` output.
-
-> At this point Akeyless has not been involved at all. These are ordinary Vault secrets in an ordinary Vault KV v2 engine.
+> These are two separate, unrelated Vault instances. No shared policies. No shared audit log. No way to ask "who accessed what across both teams" without manually checking each cluster. This is the governance gap.
 
 ---
 
-### Chapter 2: Confirm Gateway Is Running
+### Chapter 2: One Gateway, Two Clusters
 
 ```bash
 kubectl get pods -n akeyless
 kubectl get svc -n akeyless
 ```
 
-You should see Gateway pod(s) in `Running` state and the service with an `EXTERNAL-IP`. This confirms the bridge is live before the USC demo begins.
+One Gateway pod bridges both Vault instances to the Akeyless control plane.
 
 ---
 
-### Chapter 3: Manage Vault Secrets from Akeyless
-
-Show that the USC makes Vault secrets visible and manageable from the Akeyless control plane — without migrating them out of Vault.
+### Chapter 3: Both Vaults from One Control Plane
 
 ```bash
-akeyless usc list --usc-name demo-vault-usc
-akeyless usc get --usc-name demo-vault-usc --secret-id "myapp/db-password"
+# Backend Vault via USC
+akeyless usc list --usc-name demo-vault-usc-backend
+akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-password"
+
+# Payments Vault via USC
+akeyless usc list --usc-name demo-vault-usc-payments
+akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
 ```
 
-> Vault remains the system of record. The USC reads through to Vault in real time — there is no copy or cache stored inside Akeyless. Every read you see here is a live read from your Vault dev server.
+> Both Vault clusters are visible from the same Akeyless CLI session. Same RBAC model governs both. Same audit trail captures both. Secrets have not moved — each USC reads directly from its respective Vault instance in real time.
 
 ---
 
-### Chapter 4a: Two-Way Sync — Akeyless to Vault
-
-Create a secret through the Akeyless USC and verify it lands directly in Vault.
+### Chapter 4a: Two-Way Sync — Akeyless to Vault (Backend)
 
 ```bash
 akeyless usc create \
-  --usc-name demo-vault-usc \
+  --usc-name demo-vault-usc-backend \
   --secret-name "myapp/created-from-akeyless" \
   --value "value=hello-from-akeyless"
 
+export VAULT_ADDR='http://127.0.0.1:8200'
 vault kv get secret/myapp/created-from-akeyless
 ```
 
-The `vault kv get` command should return the new secret with no additional steps. The USC write went through the Gateway and directly into Vault's KV engine.
+The Akeyless write went through the Gateway directly into backend Vault's KV engine.
 
 ---
 
-### Chapter 4b: Two-Way Sync — Vault to Akeyless
-
-Create a secret natively in Vault using the standard `vault kv put` workflow, then verify it is immediately visible through the USC — with no import step and no sync job.
+### Chapter 4b: Two-Way Sync — Vault to Akeyless (Payments)
 
 ```bash
-vault kv put secret/myapp/created-from-vault value="hello-from-vault"
+export VAULT_ADDR='http://127.0.0.1:8201'
+vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
-akeyless usc list --usc-name demo-vault-usc
-akeyless usc get --usc-name demo-vault-usc --secret-id "myapp/created-from-vault"
+akeyless usc list --usc-name demo-vault-usc-payments
+akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/created-from-vault"
 ```
 
-The new secret should appear in the `usc list` output and be fully readable via `usc get`.
+No sync job. No import step. The USC reads directly from Vault, so anything written natively to payments Vault is immediately visible through Akeyless.
 
 ---
 
-### Chapter 5: vault CLI via Akeyless HVP (Zero Code Changes)
+### Chapter 5: vault CLI via HVP (Zero Code Changes)
 
-The HashiCorp Vault Proxy (HVP) allows any tool or application that speaks the Vault HTTP API to use Akeyless as the backend. The only change required on the client side is the `VAULT_ADDR` environment variable.
-
-**Set up the HVP token.** The vault CLI reads `~/.vault-token` for authentication. The HVP token format is `<Access ID>..<Access Key>`:
+**Set up the HVP token:**
 
 ```bash
 echo -n "p-xxxxxxxxxxxx..<your-access-key>" > ~/.vault-token
@@ -284,105 +283,74 @@ vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
 ```
 
-The output is identical to what Vault returned directly. No application code changed. No SDK swap. No re-architecture.
-
-**Restore the original Vault address after this chapter:**
+**Restore after this chapter:**
 
 ```bash
 export VAULT_ADDR='http://127.0.0.1:8200'
 ```
 
-> The `ORIGINAL_VAULT_ADDR` save-and-restore pattern is also in `demo/demo-commands.sh` so the rest of the demo chapters continue to work against the local Vault dev server.
-
 ---
 
-### Chapter 6: RBAC — Deny in Action
-
-Authenticate as the denied identity created by `akeyless-setup.sh` and attempt to read a secret. Replace the placeholders with the actual Access ID and Access Key printed by the setup script for `demo-denied-auth`.
+### Chapter 6: RBAC — One Policy Denies Both Clusters
 
 ```bash
 akeyless auth \
   --access-id <DENIED_ACCESS_ID> \
   --access-key <DENIED_ACCESS_KEY>
 
-akeyless usc get --usc-name demo-vault-usc --secret-id "myapp/db-password"
+# Attempt backend Vault — denied
+akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-password"
+# Expected: Unauthorized
+
+# Attempt payments Vault — also denied (same policy, different cluster)
+akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
+# Expected: Unauthorized
 ```
 
-Expected result: an `Unauthorized` or `Permission denied` error. The `demo-denied-role` has an explicit `deny` capability on `demo-vault-usc/*`, so access is blocked regardless of what Vault's own ACLs would allow.
+> One Akeyless role with a `deny` capability on both USC paths blocks access to both Vault clusters simultaneously. No per-cluster ACL update required.
 
-> This proves that Akeyless policy enforcement is authoritative. An identity denied in Akeyless cannot reach the underlying Vault secret, even if that secret is technically accessible in Vault directly.
-
-Re-authenticate as your admin identity after this chapter:
+Re-authenticate as admin:
 
 ```bash
-akeyless auth \
-  --access-id p-xxxxxxxxxxxx \
-  --access-key <your-access-key>
+akeyless auth --access-id p-xxxxxxxxxxxx --access-key <your-access-key>
 ```
 
 ---
 
-### Chapter 7: Centralized Audit Trail
-
-Every operation performed during this demo — USC reads, USC writes, HVP calls, and the RBAC denial from Chapter 6 — is recorded in the Akeyless audit log.
-
-**In the console:**
+### Chapter 7: Unified Audit Trail — Both Clusters, One Log
 
 1. Open [https://console.akeyless.io](https://console.akeyless.io)
-2. Navigate to **Logs** in the left sidebar
-3. Filter by your Access ID or by action type (`get`, `list`, `create`)
+2. Navigate to **Logs**
+3. Filter by your Access ID or action type
 
-You will see a timestamped record of every operation from this session across all chapters.
-
-**Optionally, fetch recent log entries via CLI:**
+Every operation from the session is here: USC reads and writes against both clusters, HVP calls, and both RBAC denials — attributed, timestamped, in one place.
 
 ```bash
-akeyless get-audit-event-log --limit 20
+akeyless get-audit-event-log --limit 30
 ```
-
-> This is the "single pane of glass" value proposition: one audit trail that covers Vault-backed secrets (via USC), HVP traffic, and all direct Akeyless operations — regardless of which underlying vault system holds the data.
 
 ---
 
 ## Cleanup
 
-### Stop the Vault dev server
-
-If you sourced `setup-vault-dev.sh`:
+### Stop both Vault instances
 
 ```bash
-kill $VAULT_PID
+kill $VAULT_PID_BACKEND $VAULT_PID_PAYMENTS
 ```
-
-If you ran it standalone, find the PID from the script's summary output and kill it directly:
-
-```bash
-kill <VAULT_PID printed by setup-vault-dev.sh>
-```
-
-The Vault log is at `/tmp/vault-dev.log` and can be deleted with `rm /tmp/vault-dev.log`.
 
 ### Remove Akeyless resources
 
-Delete all resources created by `akeyless-setup.sh` in reverse order:
-
 ```bash
-# Disassociate auth methods from roles before deleting
 akeyless delete-auth-method --name demo-denied-auth
 akeyless delete-auth-method --name demo-readonly-auth
-
-# Delete RBAC roles
 akeyless delete-role --name demo-denied-role
 akeyless delete-role --name demo-readonly-role
-
-# Delete the USC
-akeyless delete-usc --usc-name demo-vault-usc
-
-# Delete the Vault Target
-akeyless delete-target --name demo-vault-target
+akeyless delete-usc --usc-name demo-vault-usc-payments
+akeyless delete-usc --usc-name demo-vault-usc-backend
+akeyless delete-target --name demo-vault-target-payments
+akeyless delete-target --name demo-vault-target-backend
 ```
-
-> Run these with your admin Access ID authenticated. If you re-authenticated as the denied identity in Chapter 6, re-authenticate as admin first (`akeyless auth --access-id p-xxxxxxxxxxxx --access-key <your-access-key>`).
 
 ### Remove the Kubernetes Gateway
 

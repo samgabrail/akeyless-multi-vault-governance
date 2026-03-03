@@ -20,6 +20,30 @@ Meanwhile, the governance gaps that originally prompted the migration conversati
 
 The "all or nothing" migration approach keeps that governance gap open for the entire duration of the project. For large enterprises, that can be years.
 
+## Operational Reality
+
+The practical cost of running Vault without a centralized governance layer compounds over time in ways that are easy to underestimate.
+
+Audit log aggregation requires Vault Enterprise. If your organization is running Vault OSS or Vault Community Edition, you do not have access to the audit device features that enable proper log shipping to a SIEM. Teams either accept this gap or invest in an upgrade cycle that adds licensing cost and operational overhead.
+
+RBAC management is namespace-local. Every Vault namespace has its own set of policies, and there is no mechanism to define a policy once and apply it globally across namespaces or clusters. As the number of namespaces grows, so does the policy maintenance burden. Policy drift — where different namespaces gradually diverge from each other — is common in organizations that have been running Vault for several years.
+
+SIEM integration requires per-cluster configuration. Even with Vault Enterprise and audit logging enabled, getting those logs into a central SIEM requires configuring audit backends on each cluster individually. Changes to the SIEM pipeline mean changes to every cluster.
+
+Akeyless centralizes all of this without requiring additional cluster management, additional licensing, or migration projects. The audit trail and RBAC enforcement live in the Akeyless control plane. Connecting a new Vault instance to USC or HVP extends that centralized governance to the new instance automatically.
+
+## Why Native Vault Governance Breaks at Scale
+
+The governance limitations of standalone Vault deployments become more pronounced as organizations scale across teams, environments, and cloud regions.
+
+RBAC is scoped per cluster or namespace. There is no global policy model in Vault OSS that spans clusters. When your organization has five teams running five Vault instances, you have five independent access control models that must be kept in sync manually.
+
+Audit logs remain per cluster unless Vault Enterprise is licensed and configured. Even with Enterprise, each cluster writes its own audit log, and aggregation requires external tooling. A complete picture of who accessed what across the entire organization requires stitching together logs from multiple sources.
+
+Cross-cloud or multi-cluster visibility requires external log aggregation at minimum — and often custom tooling on top of that. There is no native mechanism in Vault to provide a unified view of access activity across clusters in different regions or cloud providers.
+
+Vault Enterprise addresses some of these limitations through replication, namespaces, and centralized audit configuration. But it does so at higher cost and with additional operational complexity. Teams that adopt Vault Enterprise to close the governance gap often find that the configuration and maintenance of that layer becomes a project in its own right.
+
 ## A Better Path: Govern Without Migrating
 
 Akeyless is not exclusively a replacement for Vault. It is a secrets management control plane that can wrap existing infrastructure — including Vault — and govern it without requiring that infrastructure to be replaced.
@@ -29,6 +53,8 @@ The coexistence story is straightforward: teams that have already adopted the Ak
 The key architectural insight is this: Vault becomes a secret store that Akeyless governs. The secrets do not move. The keys do not rotate. The Vault cluster does not change. What moves is the control plane — access decisions, audit logging, and policy enforcement now happen in Akeyless, while the underlying storage and retrieval continue to happen in Vault.
 
 This frames a natural progression. You start by layering Akeyless governance over your existing Vault deployment. Teams that are ready migrate at their own pace, moving secrets from Vault KV into Akeyless native storage when it makes sense for them. Teams that are not ready continue operating unchanged. At no point is there a hard cutover or a forced migration deadline. The governance gap closes immediately; the migration happens incrementally.
+
+This becomes even more critical in multi-Vault environments, where different teams operate separate clusters across regions or clouds. Akeyless provides centralized RBAC and audit across all Vault instances, not just one.
 
 It is worth being precise about what that initial state — call it phase zero — actually looks like. On day one, before any secrets have moved, the Akeyless audit trail is active over every Vault access that flows through USC or HVP. That is not a partial view: it covers every read, write, and list operation against the paths you have connected. RBAC is already enforced centrally at this point — access decisions are made by Akeyless policies regardless of where the secret physically lives. A team that has not started migrating is still governed by the same access control model as a team that has completed it. When migration does begin, it proceeds at whatever granularity makes sense: one team's namespace, one application's secret set, one service at a time. The underlying governance model does not change at any point in that process.
 
@@ -45,6 +71,8 @@ Once a USC is configured, it exposes a set of operations — list, read, create,
 Requirements for USC are straightforward: Vault KV version 2 (KV v1 is not supported for USC), and a Vault token with `create`, `delete`, `update`, `read`, and `list` capabilities on the paths you want to govern. The Akeyless Gateway needs network access to your Vault instance — typically a service address within the same cluster or VPC.
 
 The operational benefit of USC is that Akeyless RBAC now governs access to your Vault secrets. You can define path-level access policies, assign them to Akeyless identities (users, service accounts, machine identities), and every read, write, or list operation produces an audit log entry in the Akeyless control plane — regardless of whether that secret was created through Akeyless or directly in Vault.
+
+It is important to be precise about how Akeyless RBAC interacts with existing Vault ACL policies. Akeyless operates as an overlay governance layer — it does not replace or remove Vault's own access control. For a request to succeed through USC, it must satisfy both the Vault ACL policies on the target path and the Akeyless access policies for the requesting identity. Both policy systems must allow the operation. This is defense-in-depth, not policy substitution.
 
 USC is the right model for teams who are adopting the Akeyless CLI and console and want to govern their existing Vault secrets from the Akeyless plane without waiting for a full migration.
 
@@ -104,7 +132,7 @@ One of the more important operational properties of the USC integration is that 
 
 When you write a secret through the Akeyless USC — using `akeyless usc create` — that secret is physically written to Vault KV by the Gateway using the Vault Target credentials. It is not stored in Akeyless. It lands in Vault. A team member who is still using the vault CLI natively, pointed at the same Vault instance, can immediately read that secret with `vault kv get`. They do not know or care that the secret was created through Akeyless. Their workflow is unchanged.
 
-The reverse is equally true. When a team creates a secret directly in Vault — with `vault kv put` — that secret is immediately visible through the Akeyless USC. `akeyless usc list` will show it. `akeyless usc get` will retrieve it. There is no polling interval, no sync job, no replication mechanism to wait for. Akeyless reads directly from Vault, so the state of the Vault KV store is always the authoritative and current view.
+The reverse is equally true. When a team creates a secret directly in Vault — with `vault kv put` — that secret is immediately visible through the Akeyless USC. `akeyless usc list` will show it. `akeyless usc get` will retrieve it. There is no polling interval, no sync job, no replication mechanism to wait for. USC operates as a direct read/write interface against the Vault KV engine via the Gateway, meaning visibility reflects live Vault state rather than periodic synchronization. Akeyless reads directly from Vault, so the state of the Vault KV store is always the authoritative and current view.
 
 This property matters enormously for brownfield deployments. Every secret that already exists in your Vault instance is immediately governable through USC the moment you connect a Gateway and configure a Vault Target. You do not need to inventory your secrets, migrate them one by one, or coordinate a cutover. The governance layer activates over the existing state of your Vault without disruption.
 
@@ -114,7 +142,7 @@ Your platform team adopts Akeyless today. Your legacy applications team keeps us
 
 ## Getting Started
 
-The demo in this post's companion video runs on a Vault dev server running locally via Docker and an Akeyless Gateway deployed on a local Kubernetes cluster using Helm. The setup requires the vault CLI, the akeyless CLI, kubectl, and helm. An Akeyless account is required — the free tier at console.akeyless.io is sufficient to run everything shown in the demo.
+The demo in this post's companion video runs two Vault dev servers locally — one representing a backend team and one representing a payments team — alongside an Akeyless Gateway deployed on a local Kubernetes cluster using Helm. The setup requires the vault CLI, the akeyless CLI, kubectl, and helm. An Akeyless account is required — the free tier at console.akeyless.io is sufficient to run everything shown in the demo.
 
 The demo repository contains setup scripts that handle the full configuration. Three commands cover the initial environment:
 
@@ -125,28 +153,54 @@ helm upgrade --install akeyless-gateway akeyless/akeyless-api-gateway \
 ./demo/akeyless-setup.sh
 ```
 
-The first script starts the Vault dev server and seeds the demo secrets. The Helm command deploys the Akeyless Gateway into the `akeyless` namespace on your local cluster. The third script creates the Vault Target, configures the Universal Secret Connector, and sets up the access policies used in the RBAC chapter. Full setup instructions and the complete command reference for each demo chapter are in the `demo/` folder in the repository.
+The first script starts both Vault dev servers and seeds demo secrets in each. The Helm command deploys the Akeyless Gateway into the `akeyless` namespace on your local cluster. The third script creates two Vault Targets (one per cluster), two Universal Secret Connectors, and sets up the access policies used in the RBAC chapter. Full setup instructions and the complete command reference for each demo chapter are in the `demo/` folder in the repository.
 
 ## What We Did in the Demo
 
-We started with a clean baseline. The Vault dev server was running with two secrets seeded under `secret/myapp/` — a database credential at `secret/myapp/db-password` containing a password, and an API key at `secret/myapp/api-key`. We listed those secrets and retrieved them using the vault CLI pointed directly at the local instance. Standard Vault, no Akeyless in the picture. The point was to establish exactly what exists in Vault before any integration, so the subsequent steps have a clear before-and-after.
+Chapter 1 established the starting point: two completely independent Vault clusters. The backend team's Vault (port 8200) had secrets at `secret/myapp/db-password` and `secret/myapp/api-key`. The payments team's Vault (port 8201) had entirely separate secrets at `secret/payments/stripe-key` and `secret/payments/db-url`. We listed and retrieved secrets from each using the vault CLI pointed at each instance directly. No governance, no shared visibility — just two isolated clusters, each its own island.
 
-Chapter 2 shifted to the Kubernetes side, where we ran `kubectl get pods -n akeyless` to confirm the Akeyless Gateway was running. This is the bridging component — it sits inside your infrastructure, holds a persistent connection to the Akeyless control plane over HTTPS, and maintains the authenticated connection to the Vault instance through the Vault Target. Seeing the pod in a running state confirmed the bridge was in place.
+Chapter 2 shifted to the Kubernetes side to confirm the Akeyless Gateway was running. One Gateway pod handles connections to both Vault instances through separate Vault Targets. Seeing it in a running state confirmed the bridge was in place before the USC steps began.
 
-Chapter 3 was the first real demonstration of USC governance. We switched entirely to the Akeyless CLI — no vault command in sight — and ran `akeyless usc list` against our connector named `demo-vault-usc`. Both secrets we had just looked at in Vault appeared in the output, with the same paths, immediately. We then ran `akeyless usc get` for each path and retrieved the same credential values. Nothing had moved. The secrets were still physically in Vault. But the access had just been authenticated by Akeyless, authorized against an Akeyless access policy, and logged in the Akeyless audit trail. From a governance standpoint, that read was now visible and attributable.
+Chapter 3 was the first demonstration of what centralized governance actually looks like. We switched to the Akeyless CLI and ran `akeyless usc list` twice — once against `demo-vault-usc-backend` and once against `demo-vault-usc-payments`. Both Vault clusters appeared in the same CLI session. We then retrieved individual secrets from each with `akeyless usc get`. Nothing had moved from either Vault. The USCs read directly from their respective instances. But every one of those reads was authenticated against Akeyless, authorized against the same access policies, and logged in the same audit trail. Two clusters, one governance layer, activated with no migration.
 
-Chapter 4 demonstrated the bidirectional sync in two parts. In 4a, we created a new secret through Akeyless — `akeyless usc create` with a service token value — and then switched back to the vault CLI to verify it with `vault kv get`. The secret was there. It had been written directly to Vault KV by the Gateway acting on behalf of the Akeyless operation. A team member using only the vault CLI would see this secret with no indication that it was created through Akeyless. In 4b, we reversed the flow: created a secret directly in Vault with `vault kv put`, then immediately switched back to the Akeyless CLI and ran `akeyless usc list`. The new secret appeared in the list without delay. `akeyless usc get` retrieved it correctly. No sync job, no propagation lag — Akeyless had simply read directly from the authoritative Vault KV store, which now included the natively-created secret.
+Chapter 4 demonstrated the bidirectional sync in two parts. In 4a, we created a new secret through the Akeyless USC for the backend cluster and then verified it with `vault kv get` pointed at port 8200. The secret was there, written directly to Vault KV by the Gateway. A backend team member using only the vault CLI would see this secret with no indication that Akeyless was involved. In 4b, we wrote a secret natively to the payments Vault with `vault kv put` pointed at port 8201, then immediately queried it through the payments USC. It appeared in `akeyless usc list` instantly and was fully readable via `akeyless usc get`. No sync job, no propagation lag — the USC is a live read/write interface against the Vault KV engine.
 
-Chapter 5 demonstrated the HashiCorp Vault Proxy. We changed exactly one environment variable — `VAULT_ADDR` pointed from the local Vault address to `https://hvp.akeyless.io` — and then ran the same vault CLI commands from Chapter 1. `vault kv list secret/myapp`, `vault kv get secret/myapp/db-password`, `vault kv get secret/myapp/created-from-akeyless` (the one we had created through Akeyless in 4a). Every command produced identical output to what we had seen in Chapter 1. The vault CLI did not behave any differently. From the CLI's perspective, it was talking to a Vault server. Akeyless was handling the authentication, authorization, and audit logging transparently behind that API surface.
+Chapter 5 demonstrated the HashiCorp Vault Proxy. We changed exactly one environment variable — `VAULT_ADDR` pointed to `https://hvp.akeyless.io` — and ran the same vault CLI commands from Chapter 1 against the backend cluster. Identical output. The vault CLI did not behave differently in any way. From its perspective it was talking to a Vault server. Akeyless was handling the authentication, authorization, and audit logging transparently behind that API surface.
 
-Chapter 6 was the governance proof point on enforcement. We authenticated to Akeyless as a different identity — one configured with access to the USC connector but with a path-level policy that excluded `secret/myapp/db-password`. We then attempted `akeyless usc get` on the db-password path. The request was denied at the Akeyless control plane with an "Unauthorized" error. The request never reached the Gateway, never touched the Vault Target, never hit Vault itself. Akeyless evaluated the access policy for that identity against that path, found no matching allow rule, and rejected the request outright. This is what granular, enforced governance looks like — not just logging who accessed what, but actively preventing access that should not be permitted.
+Chapter 6 was the governance proof point on enforcement. We authenticated as a denied identity — one with an explicit `deny` policy applied to paths under both USC connectors — and attempted `akeyless usc get` against the backend cluster. Denied. Then against the payments cluster. Also denied. One Akeyless role blocked access to both Vault instances simultaneously without touching a single Vault ACL policy. This is what centralized enforcement means: a policy change in Akeyless propagates to every connected Vault cluster at once.
 
-Chapter 7 pulled the thread together in the Akeyless console's Logs view. Every operation from the entire demo session was present: the USC list and get calls from Chapter 3, the USC create from 4a, the USC list and get that confirmed the natively-created Vault secret in 4b, all the HVP vault CLI calls from Chapter 5 — attributed to the Akeyless identity that authenticated with HVP, not a generic service account — and the denied access attempt from Chapter 6, with status "Denied" and full attribution. One audit trail, one view, covering every path into the governed secrets regardless of which tool generated the request. That is what a CISO needs to be able to answer the "who accessed what, when, from where" question.
+Chapter 7 pulled it together in the Akeyless console's Logs view. Every operation from the session was there: USC reads from both clusters in Chapter 3, the write to backend Vault in 4a, the write to payments Vault detected in 4b, all the HVP vault CLI calls from Chapter 5, and both denial attempts from Chapter 6 — all attributed, all timestamped, all in one view. A CISO asking "who accessed what across which Vault cluster, when, from where" gets a single answer from a single log, regardless of how many Vault instances are connected.
 
 ## Next Steps
 
 If your organization is running Vault today and the governance gaps are real — fragmented audit logs, per-namespace RBAC with no cross-team visibility, no single source of truth for access history — you can close those gaps without a migration project. The Akeyless free tier is available at console.akeyless.io. The USC and HVP integrations work with the secrets and workflows you already have.
 
-For documentation, the Akeyless overview is at docs.akeyless.io/docs/what-is-akeyless. The USC-specific documentation, including the full requirements and configuration steps for the Vault Target and connector, is at docs.akeyless.io/docs/hashicorp-vault-usc. The HVP documentation, including the full list of supported operations, authentication formats, and dynamic secret producers, is at docs.akeyless.io/docs/hashicorp-vault-proxy. The demo repository linked in this post contains the setup scripts and command reference to reproduce everything shown in the video.
+For documentation, the Akeyless overview is at docs.akeyless.io/docs/what-is-akeyless. The USC-specific documentation, including the full requirements and configuration steps for the Vault Target and connector, is at docs.akeyless.io/docs/hc-vault-universal-secrets-connector. The HVP documentation, including the full list of supported operations, authentication formats, and dynamic secret producers, is at docs.akeyless.io/docs/hashicorp-vault-proxy. The demo repository linked in this post contains the setup scripts and command reference to reproduce everything shown in the video.
 
 If you are running Vault today and want to layer governance on top of it without disruption — start here.
+
+## Frequently Asked Questions
+
+**Does USC move my secrets out of Vault?**
+
+No. The Universal Secret Connector does not copy or replicate secrets into Akeyless storage. Akeyless reads and writes directly to your Vault KV engine via the Gateway. Your secrets remain physically in Vault at all times. Akeyless governs the access; Vault holds the data.
+
+**Can I use HVP if I'm on Vault Enterprise with namespaces?**
+
+HVP supports Vault OSS API compatibility. Support for Vault Enterprise namespace-scoped paths varies — check the current HVP documentation at docs.akeyless.io/docs/hashicorp-vault-proxy for the latest details on namespace support.
+
+**What Vault token permissions does the USC require?**
+
+The Vault token used by the USC requires `create`, `delete`, `update`, `read`, and `list` capabilities on the KV paths you want to govern. KV version 2 is required; KV v1 is not supported for USC.
+
+**Can I use the vault CLI with HVP against dynamic secrets?**
+
+Yes. HVP supports dynamic secrets through Akeyless dynamic secret producers. Over 20 producers are available, covering AWS, Azure, GCP, database engines, Kubernetes, and more. Teams currently using Vault dynamic secrets engines can have equivalent Akeyless dynamic credentials delivered through the same HVP endpoint their tooling already targets.
+
+**Does Akeyless RBAC replace or complement Vault ACLs?**
+
+Akeyless RBAC operates as an overlay governance layer. Your existing Vault ACL policies remain intact and continue to be enforced. For a request to succeed through USC or HVP, it must satisfy both the Vault ACL policies on the target path and the Akeyless access policies for the requesting identity. Neither system's policies are removed or bypassed — this is defense-in-depth, not policy replacement.
+
+**What happens if Akeyless is unavailable?**
+
+USC and HVP operations route through the Akeyless control plane. If the control plane is unavailable, USC and HVP requests will not be processed. Teams accessing Vault directly — bypassing HVP — are unaffected by Akeyless availability. This is a relevant consideration for organizations that route all Vault access through HVP as the sole access path. Refer to the Akeyless Gateway documentation for local caching and availability options.

@@ -126,49 +126,59 @@ In both cases, every operation hits the same Akeyless control plane and produces
 
 > **What We're About to Do**
 >
-> 1. Verify the Vault dev server has secrets
-> 2. Confirm the Akeyless Gateway is running on Kubernetes
-> 3. Read Vault secrets through the Akeyless USC
+> 1. Show two isolated Vault instances — no shared governance
+> 2. Confirm one Akeyless Gateway bridges both
+> 3. Read secrets from both Vaults via Akeyless USC
 > 4a. Create a secret via Akeyless — verify it appears in Vault
 > 4b. Create a secret in Vault — verify Akeyless picks it up
 > 5. Use the `vault` CLI unchanged via HashiCorp Vault Proxy
-> 6. Test RBAC enforcement — show access denied
-> 7. Review the unified audit trail in the Akeyless console
+> 6. One RBAC policy denies access across both Vault clusters
+> 7. One audit trail covers both Vault clusters
 
 **Narration:**
 
-Here's what we're going to cover. Seven chapters, about nine minutes of live demo. Let's get into it.
+Here's what we're going to cover. Seven chapters, about nine minutes of live demo. Two separate Vault clusters, one governance layer. Let's get into it.
 
 ---
 
-## [CHAPTER 1]: Verify Vault Dev Secrets
+> **Note:** The demo below uses the CLI for precision. In practice, the UI often demos better for live audiences — consider switching to the Akeyless Console for Chapter 3, 4, 6, and 7 if recording for a general audience.
 
-**Duration:** ~1:00
+## [CHAPTER 1]: Two Vault Instances — No Shared Governance
+
+**Duration:** ~1:15
 
 **On screen:**
 
 Terminal showing:
 
 ```bash
+# Backend team's Vault (port 8200)
 export VAULT_ADDR='http://127.0.0.1:8200'
 export VAULT_TOKEN='root'
 
 vault kv list secret/myapp
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
+
+# Payments team's Vault (port 8201) — completely separate cluster
+export VAULT_ADDR='http://127.0.0.1:8201'
+
+vault kv list secret/payments
+vault kv get secret/payments/stripe-key
+vault kv get secret/payments/db-url
 ```
 
-And the resulting output — two secrets visible at `secret/myapp/`.
+Two separate clusters, each with their own secrets.
 
 **Narration:**
 
-Let's start from the beginning. This is a Vault dev server running locally — no Akeyless in the picture yet. I've got `VAULT_ADDR` pointed at the local instance and I'm using the root token.
+Let's start from the beginning — no Akeyless in the picture yet. We have two completely independent Vault instances running locally.
 
-First I'll list what's in the `secret/myapp` path. You can see two paths there — `db-password` and `api-key`. Let me pull those.
+This first one on port 8200 is the backend team's Vault. I'll list what's under `secret/myapp` — there's `db-password` and `api-key`. Standard KV secrets, standard Vault.
 
-`vault kv get secret/myapp/db-password` — this has a password field. Standard database credential structure. And `vault kv get secret/myapp/api-key` — there's an API key. These are the secrets we seeded for the demo.
+Now let me switch to port 8201. This is the payments team's Vault — a completely separate cluster. Different secrets, different KV structure: `stripe-key` and `db-url` under `secret/payments`.
 
-This is completely vanilla Vault. There's nothing special happening here. These secrets exist in Vault, they're accessible with the vault CLI, and there is zero central visibility into who's reading them. That's the problem we're solving. Keep that in mind as we go through the rest of this demo.
+These two clusters have nothing in common. No shared policies. No shared audit log. If a CISO asks "who accessed the payments Stripe key in the last 30 days," the answer comes from this cluster's logs only — and only if Vault Enterprise is configured to ship them somewhere. The backend team's activity is completely invisible from here, and vice versa. This is the governance gap we're going to close.
 
 ---
 
@@ -192,49 +202,49 @@ Now let's look at what's running on the Kubernetes side. I'll query the `akeyles
 
 You can see the Akeyless Gateway pod is running. This is the component that lives inside your infrastructure — it's the bridge between the Akeyless control plane in the cloud and your internal resources. In a real deployment this would be sitting inside your private network, with network access to your Vault instance but no inbound internet exposure required.
 
-The Gateway has been pre-configured with a Vault Target that points at the dev server we just looked at, and a Universal Secret Connector built on top of that target. That setup is what lets the next steps work. Let's go use it.
+The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8201 — and a Universal Secret Connector on top of each. One Gateway, two clusters. That's the setup that lets the next steps work. Let's go use it.
 
 ---
 
-## [CHAPTER 3]: USC List and Get
+## [CHAPTER 3]: Both Vaults from One Control Plane
 
-**Duration:** ~1:15
+**Duration:** ~1:30
 
 **On screen:**
 
 Terminal showing:
 
 ```bash
-akeyless usc list --usc-name demo-vault-usc
+# Backend team's Vault via USC
+akeyless usc list --usc-name demo-vault-usc-backend
 
 akeyless usc get \
-  --usc-name demo-vault-usc \
-  --secret-id secret/myapp/db-password
+  --usc-name demo-vault-usc-backend \
+  --secret-id myapp/db-password
+
+# Payments team's Vault via USC
+akeyless usc list --usc-name demo-vault-usc-payments
 
 akeyless usc get \
-  --usc-name demo-vault-usc \
-  --secret-id secret/myapp/api-key
+  --usc-name demo-vault-usc-payments \
+  --secret-id payments/stripe-key
 ```
 
-Output showing the same secret values we saw in Vault directly.
+Output showing the same secret values we saw in each Vault directly.
 
 **Narration:**
 
-This is the key moment of the USC demo. I'm now using the Akeyless CLI — not the vault CLI. And I'm reading secrets out of Vault through the Akeyless control plane.
+This is the key moment. I'm now using the Akeyless CLI, and I'm going to access secrets from both Vault clusters in the same session.
 
-`akeyless usc list` with the name of our connector — `demo-vault-usc`. You can see the same two secrets we just saw in Vault. Same paths, same structure.
+`akeyless usc list` on `demo-vault-usc-backend` — there are the backend team's secrets. Same paths we saw in Vault. Let me pull the database credential. And there it is — same password, physically stored in backend Vault, read through the Akeyless control plane.
 
-Now let me get the database secret. `akeyless usc get`, specifying the USC name and the secret id. And there it is — same password that's physically stored in Vault.
+Now — same CLI, same session — let me switch to the payments connector. `akeyless usc list` on `demo-vault-usc-payments` — payments secrets. Let me get the Stripe key.
 
-Notice what just happened here. That read request was authenticated against Akeyless, checked against Akeyless access policies, and logged in the Akeyless audit trail. The secret never left your Vault instance — Akeyless read it on behalf of the authenticated identity and returned it. Vault didn't change. The workflow on the Akeyless side is completely standard Akeyless.
-
-Let me grab the API key too. Same pattern, same result.
-
-This is what USC gives you — a governance layer over secrets that continue to live in your existing Vault. You don't move them. You just govern the access.
+Two separate Vault clusters. One Akeyless CLI session. Same RBAC policies govern both. Same audit trail captures both. Neither secret left its respective Vault — Akeyless reads directly from each one. You don't move anything; you just add governance.
 
 ---
 
-## [CHAPTER 4a]: Akeyless USC Create → Vault Verify
+## [CHAPTER 4a]: Akeyless USC Create → Vault Verify (Backend)
 
 **Duration:** ~1:15
 
@@ -243,36 +253,36 @@ This is what USC gives you — a governance layer over secrets that continue to 
 Terminal showing:
 
 ```bash
-# Create via Akeyless USC
+# Create via Akeyless USC for backend Vault
 akeyless usc create \
-  --usc-name demo-vault-usc \
-  --secret-name secret/myapp/created-from-akeyless \
-  --secret-value '{"token":"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9","service":"payments"}'
+  --usc-name demo-vault-usc-backend \
+  --secret-name myapp/created-from-akeyless \
+  --value "value=hello-from-akeyless"
 
-# Switch back to vault CLI and verify
+# Switch to backend Vault CLI and verify
 export VAULT_ADDR='http://127.0.0.1:8200'
 export VAULT_TOKEN='root'
 
 vault kv get secret/myapp/created-from-akeyless
 ```
 
-Output showing the secret is present in Vault.
+Output showing the secret is present in backend Vault.
 
 **Narration:**
 
-Now let's go the other direction — create a secret through Akeyless and verify it lands in Vault.
+Now let's go the other direction — create a secret through Akeyless and verify it lands physically in Vault.
 
-`akeyless usc create` — I'm giving it the USC name, a path under `secret/myapp/created-from-akeyless`, and a JSON value with a service token. The command completes.
+`akeyless usc create` on the backend connector. The command completes.
 
-Now I'll switch back to the vault CLI — same `VAULT_ADDR` and token we used at the start. `vault kv get secret/myapp/created-from-akeyless`.
+Now I'll switch back to the vault CLI pointed at port 8200 — the backend team's Vault. `vault kv get secret/myapp/created-from-akeyless`.
 
-There it is. The secret we just created through the Akeyless control plane physically exists in Vault. The team that's still using Vault natively — the one we said we didn't want to disrupt — can read this secret with the exact same workflow they've always used. They don't know Akeyless was involved. They don't need to know.
+There it is. Written through the Akeyless control plane, physically landed in Vault. The backend team using the vault CLI natively would see this secret with no indication Akeyless was involved. They don't know. They don't need to know.
 
-That's the bidirectional nature of the USC. Akeyless and Vault are in sync not because of any replication mechanism, but because Akeyless is reading and writing directly to your Vault instance.
+The USC writes directly to Vault KV via the Gateway — not a copy, not a sync. The Gateway is the write path.
 
 ---
 
-## [CHAPTER 4b]: Vault Create → Akeyless Verify
+## [CHAPTER 4b]: Vault Create → Akeyless Verify (Payments)
 
 **Duration:** ~1:00
 
@@ -281,28 +291,29 @@ That's the bidirectional nature of the USC. Akeyless and Vault are in sync not b
 Terminal showing:
 
 ```bash
-# Create natively in Vault
-vault kv put secret/myapp/created-from-vault \
-  connection_string="postgres://admin:secret@db.internal:5432/prod" \
-  environment="production"
+# Write natively to the payments Vault
+export VAULT_ADDR='http://127.0.0.1:8201'
+vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
-# Verify via Akeyless USC
-akeyless usc list --usc-name demo-vault-usc
+# Verify Akeyless sees it immediately
+akeyless usc list --usc-name demo-vault-usc-payments
 
 akeyless usc get \
-  --usc-name demo-vault-usc \
-  --secret-id secret/myapp/created-from-vault
+  --usc-name demo-vault-usc-payments \
+  --secret-id payments/created-from-vault
 ```
 
 Output showing the new secret is immediately visible through USC.
 
 **Narration:**
 
-And the reverse. I'll create a secret the old-fashioned way — straight into Vault with `vault kv put`. This simulates a secret that was already in Vault before anyone thought about governance, or that a team put there directly.
+Now the reverse — and this time I'll use the payments Vault to make it clear this works across clusters.
 
-Now switch back to the Akeyless CLI. `akeyless usc list` — and `created-from-vault` is already there. `akeyless usc get` on that path — same values we just wrote.
+I'll write a secret directly into the payments Vault on port 8201 with `vault kv put`. Native Vault, no Akeyless involved in the write.
 
-There's no sync job here, no polling interval, no replication lag. Akeyless reads directly from Vault, so whatever's in Vault is immediately accessible through the Akeyless control plane. This is important for brownfield deployments — every secret that already exists in Vault is already governable through USC the moment you connect it. You don't have to migrate anything.
+Now switch to the Akeyless CLI. `akeyless usc list` on the payments connector — and `created-from-vault` is already there. `akeyless usc get` — same value.
+
+No sync job. No import step. No polling delay. Akeyless reads directly from the live Vault KV engine. Whatever's in payments Vault is immediately visible through the payments USC. This applies to every secret in that Vault — including ones that existed for years before Akeyless was connected.
 
 ---
 
@@ -318,8 +329,9 @@ Terminal showing:
 # The one change: point VAULT_ADDR at Akeyless HVP
 export VAULT_ADDR='https://hvp.akeyless.io'
 
-# Token is an Akeyless access token (starts with t-)
-export VAULT_TOKEN='t-abc123...'
+# Token format: <Access Id>..<Access Key>  (two dots between them)
+# Example: p-xxxxxxxxxxxx..your-access-key
+cat ~/.vault-token
 
 # Same vault commands, completely unchanged
 vault kv list secret/myapp
@@ -337,7 +349,7 @@ Now for the HashiCorp Vault Proxy. This is the path for teams where changing the
 
 One environment variable change. `VAULT_ADDR` now points at `hvp.akeyless.io` instead of the local Vault server. That's it. That's the entire change.
 
-The token is slightly different — it's an Akeyless access token, which starts with `t-`. In a real deployment you'd generate this through your normal Akeyless authentication flow — IAM, JWT, certificate, whatever your teams use. The vault CLI doesn't care what the token format is; it just passes it as a header.
+The token format is your Akeyless Access ID and Access Key joined with two dots — so it looks like `p-xxxxxxxxxxxx..your-access-key`. In a real deployment you'd store this in `~/.vault-token` or pass it through whatever token injection mechanism your teams already use. The vault CLI doesn't care what the token value is; it just passes it as a header.
 
 Now let's run the exact same commands from Chapter 1. `vault kv list secret/myapp` — same output. `vault kv get secret/myapp/db-password` — same password. `vault kv get secret/myapp/created-from-akeyless` — the one we created via Akeyless USC, now visible through the vault CLI.
 
@@ -347,43 +359,50 @@ That is what zero-disruption migration looks like in practice.
 
 ---
 
-## [CHAPTER 6]: RBAC — Access Denied
+## [CHAPTER 6]: RBAC — One Policy, Both Clusters Denied
 
-**Duration:** ~1:15
+**Duration:** ~1:30
 
 **On screen:**
 
 Terminal showing:
 
 ```bash
-# Authenticate as a restricted identity
+# Authenticate as the denied identity
 akeyless auth \
-  --access-id p-abc123 \
-  --access-key '...'
+  --access-id <DENIED_ACCESS_ID> \
+  --access-key '<DENIED_ACCESS_KEY>'
 
-# Attempt to read a secret this identity shouldn't access
+# Attempt backend Vault — denied
 akeyless usc get \
-  --usc-name demo-vault-usc \
-  --secret-id secret/myapp/db-password
+  --usc-name demo-vault-usc-backend \
+  --secret-id myapp/db-password
+# Output: Unauthorized
 
-# Output: Access denied — unauthorized
+# Attempt payments Vault — also denied
+akeyless usc get \
+  --usc-name demo-vault-usc-payments \
+  --secret-id payments/stripe-key
+# Output: Unauthorized
 ```
 
-Error output clearly showing the access denial.
+Error output on both attempts.
 
 **Narration:**
 
-Governance isn't just visibility — it's control. Let me show you what enforcement looks like.
+Governance isn't just visibility — it's enforcement. Let me show you what that looks like at scale.
 
-I'll authenticate as a different identity — one that's been given access to the USC connector, but not to the `secret/myapp/db-password` path specifically. Akeyless supports path-level access policies the same way you'd scope any other secret.
+I'll authenticate as a denied identity. This identity has a single Akeyless role with a `deny` capability applied to paths under both USC connectors — backend and payments.
 
-`akeyless auth` with this identity's credentials. Authentication succeeds — this is a valid Akeyless identity.
+`akeyless auth`. Credentials accepted — this is a valid identity.
 
-Now `akeyless usc get` on the database path.
+Now `akeyless usc get` on the backend database credential. Denied. The request never reached Vault.
 
-Denied. "Unauthorized." The request never reached Vault. Akeyless evaluated the access policy for this identity against this path, found no matching allow rule, and rejected the request at the control plane level.
+Now `akeyless usc get` on the payments Stripe key. Also denied.
 
-This is what governance means in practice. It's not about seeing who accessed what after the fact — although the audit trail does that. It's about being able to say "this team, this service, this CI job can access these secrets and nothing else," and having that enforced consistently regardless of which underlying secret store the secret happens to live in.
+One Akeyless policy blocked access to two separate Vault clusters simultaneously. I didn't update any Vault ACL policy. I didn't touch either cluster. I changed one Akeyless role and both clusters were governed immediately.
+
+This is what centralized governance means at scale. When you need to revoke a team's access, you do it once in Akeyless. Every connected Vault instance enforces it.
 
 ---
 
@@ -395,19 +414,20 @@ This is what governance means in practice. It's not about seeing who accessed wh
 
 Browser showing the Akeyless console Logs page, with a filtered view showing log entries from this demo session. Entries visible include:
 
-- USC list operations
-- USC get operations (db-password, api-key, created-from-akeyless, created-from-vault)
-- USC create (created-from-akeyless)
-- HVP vault kv list and get operations
-- The denied USC get attempt from Chapter 6, with status "Denied"
+- USC list operations (backend connector, then payments connector)
+- USC get operations from both connectors
+- USC create (backend, Chapter 4a)
+- Native Vault write picked up by payments USC (Chapter 4b)
+- HVP vault kv list and get operations (Chapter 5)
+- Two denied USC get attempts from Chapter 6 — both with status "Denied"
 
 **Narration:**
 
-Last stop — the audit trail. I'll navigate to the Logs section in the Akeyless console.
+Last stop — the audit trail. One log for both clusters.
 
-Here's every operation from this demo. The USC list and get calls from Chapter 3. The create from Chapter 4a. The vault CLI calls through HVP from Chapter 5 — notice those show up here too, attributed to the Akeyless identity that authenticated with HVP, not a generic "vault" user. And at the bottom, that denied access attempt from Chapter 6 — status "Denied," identity, path, timestamp, all there.
+Here's everything from this session. The USC reads from the backend connector in Chapter 3. The USC reads from the payments connector — same log, different cluster. The create through the backend connector in 4a. The write we made natively in the payments Vault, picked up via USC in 4b. The HVP vault CLI calls from Chapter 5 — attributed to the Akeyless identity, not a generic token. And down here, both denial attempts from Chapter 6 — one for the backend cluster, one for payments, both status "Denied."
 
-One audit trail. Regardless of which tool your teams use. Whether they went through the Akeyless CLI, the Akeyless console, or the vault CLI pointed at HVP, every operation ends up in the same log. You can ship this to your SIEM, set up alerts on it, pull it for compliance reports — all from a single source.
+Two Vault clusters. One log. Every operation — regardless of which tool triggered it, regardless of which cluster held the secret — is in this single view. Forwardable to your SIEM. Filterable by identity, by action, by path, by cluster. This is what a CISO actually needs.
 
 ---
 
@@ -430,6 +450,6 @@ One audit trail. Regardless of which tool your teams use. Whether they went thro
 
 **Narration:**
 
-So that's the full picture. USC and HVP are two different entry points into the same control plane. One is for teams ready to adopt the Akeyless CLI, the other is for teams that aren't going anywhere near it. Both give you the same RBAC enforcement, the same audit trail, and the same central visibility that closes the governance gap — without requiring a single secret to be migrated or a single workflow to change.
+So that's the full picture. Two separate Vault clusters, one Akeyless control plane. USC and HVP are two different entry points into that control plane — one for teams adopting Akeyless natively, one for teams keeping the vault CLI. Both give you the same RBAC enforcement, the same audit trail, and the same central visibility across every connected Vault instance — without migrating a single secret or changing a single workflow.
 
 If you want to try this yourself, the free tier at console.akeyless.io is a good place to start, and the full documentation for both USC and HVP is at docs.akeyless.io. Thanks for watching.

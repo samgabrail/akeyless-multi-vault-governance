@@ -24,6 +24,8 @@
 
 **4. Centralized governance from day one.** From the moment USC or HVP is connected, every read, write, list, and denied access attempt is logged in the Akeyless audit trail  - regardless of which tool or team triggered it. RBAC is enforced centrally at this point, not per-team.
 
+Akeyless enforces governance as an overlay layer. Vault ACL policies remain intact. Access must satisfy both Vault ACL and Akeyless RBAC. This ensures defense-in-depth rather than policy replacement.
+
 **5. The migration can happen at your pace.** Akeyless is a control plane, not a cutover event. Teams can adopt it namespace by namespace, application by application. The governance model does not change at any point in that process.
 
 ---
@@ -40,11 +42,26 @@
 - The governance gaps that emerge: no single audit trail, RBAC fragmented across Vault namespaces, Vault Enterprise required for proper audit log shipping, no cross-team visibility
 - The cost of the "all or nothing" migration mindset
 
+**Operational Reality**
+- Vault Enterprise licensing for audit aggregation
+- Namespace-level RBAC duplication
+- SIEM pipeline configuration per cluster
+- Ongoing policy drift management
+- Akeyless centralizes this without additional cluster management or migration projects.
+
+**Why Native Vault Governance Breaks at Scale**
+- RBAC is scoped per cluster or namespace, not global.
+- Audit logs remain per cluster unless Vault Enterprise is licensed and configured.
+- No centralized policy enforcement across environments.
+- Cross-cloud or multi-cluster visibility requires stitching logs externally.
+- Vault Enterprise solves parts of this, but increases cost and operational overhead.
+
 **A Better Path: Govern Without Migrating**
 - Akeyless as a control plane that wraps existing infrastructure rather than replacing it
 - The coexistence story: secrets stay in Vault, control moves to Akeyless
 - Phase zero defined: audit trail active, RBAC enforced centrally, zero secrets moved
 - Incremental migration possible at any granularity  - one namespace, one team, one app
+- This becomes even more critical in multi-Vault environments, where different teams operate separate clusters across regions or clouds. Akeyless provides centralized RBAC and audit across all Vault instances, not just one.
 
 **Two Integration Models**
 - *USC (Universal Secret Connector)*: govern secrets in-place via Akeyless control plane. Requires KV v2 engine. Vault token needs create/delete/update/read/list capabilities on KV paths.
@@ -52,7 +69,7 @@
 - When to use each
 
 **Architecture at a Glance**
-- ASCII diagram showing both traffic paths:
+- Diagram showing both traffic paths:
   - `vault CLI → hvp.akeyless.io → Akeyless Control Plane`
   - `akeyless CLI → USC → Akeyless Gateway → Vault Target → HashiCorp Vault KV`
   - Both paths converge at Akeyless RBAC + Audit Log
@@ -61,6 +78,7 @@
 - Write from Akeyless via USC → secret physically lands in Vault KV → Vault-native team reads it with `vault kv get` unchanged
 - Write natively in Vault → immediately visible via `akeyless usc list/get`  - no sync job, no polling
 - Governance implication: regardless of which team created the secret, Akeyless RBAC controls who accesses it
+- USC operates as a direct read/write interface against the Vault KV engine via the Gateway, meaning visibility reflects live Vault state rather than periodic synchronization.
 
 **Getting Started**
 - Prerequisites: vault CLI, akeyless CLI, kubectl + helm, Akeyless account (free tier works)
@@ -104,6 +122,7 @@ Suggested questions:
 - What Vault token permissions does the USC require?
 - Can I use the vault CLI with HVP against dynamic secrets?
 - Does Akeyless RBAC replace or complement Vault ACLs?
+- What happens if Akeyless is unavailable?
 
 ---
 
@@ -178,29 +197,31 @@ Show: Numbered chapter list
 
 ### DEMO SECTION (~9 min)
 
-**Chapter 1 (~1 min): Verify Vault dev secrets**
-Vault dev mode running locally. Two secrets seeded: `secret/myapp/db-password` and `secret/myapp/api-key`. Standard Vault  - no Akeyless yet. Show `vault kv list` and `vault kv get`.
+*Using CLI here but most likely will use UI as it demos better.*
 
-**Chapter 2 (~45 sec): Confirm Gateway on K8s**
-`kubectl get pods -n akeyless` and `kubectl get svc -n akeyless`. Gateway is the bridge between Akeyless control plane and the local Vault instance.
+**Chapter 1 (~1 min 15 sec): Two isolated Vault instances — no shared governance**
+Two Vault dev servers running: backend team (port 8200, `secret/myapp/`) and payments team (port 8201, `secret/payments/`). Show `vault kv list` and `vault kv get` against each. Standard Vault — no Akeyless yet. Establishes the governance gap: two clusters, no shared audit, no shared RBAC.
 
-**Chapter 3 (~1 min 15 sec): Read Vault secrets via Akeyless USC**
-`akeyless usc list` and `akeyless usc get`  - Vault secrets visible and manageable from the Akeyless control plane. The secret physically stays in Vault; Akeyless governs the access.
+**Chapter 2 (~45 sec): One Gateway bridges both**
+`kubectl get pods -n akeyless`. One Gateway pod connected to both Vault instances via separate Vault Targets and USCs.
 
-**Chapter 4a (~1 min 15 sec): Two-Way Sync  - Akeyless → Vault**
-`akeyless usc create` seeds a new secret. Then `vault kv get` confirms it physically exists in Vault. Vault-native teams consume it unchanged.
+**Chapter 3 (~1 min 30 sec): Both Vaults from one control plane**
+`akeyless usc list` and `akeyless usc get` against `demo-vault-usc-backend`, then against `demo-vault-usc-payments`. Same CLI, same RBAC, same audit trail — two separate clusters governed simultaneously.
 
-**Chapter 4b (~1 min): Two-Way Sync  - Vault → Akeyless**
-`vault kv put` creates a secret natively in Vault. Then `akeyless usc list` and `akeyless usc get` pick it up immediately  - no sync job, no polling delay.
+**Chapter 4a (~1 min 15 sec): Two-Way Sync  - Akeyless → Vault (backend)**
+`akeyless usc create` on the backend USC. Then `vault kv get` against port 8200 confirms the secret physically exists in backend Vault.
+
+**Chapter 4b (~1 min): Two-Way Sync  - Vault → Akeyless (payments)**
+`vault kv put` natively into payments Vault (port 8201). Then `akeyless usc list` and `akeyless usc get` on `demo-vault-usc-payments` pick it up immediately — no sync job, no polling delay.
 
 **Chapter 5 (~1 min 30 sec): HVP  - vault CLI with zero code changes**
 `export VAULT_ADDR='https://hvp.akeyless.io'`. Same `vault kv get` commands. Same output. Zero application changes. Akeyless is now the backend.
 
-**Chapter 6 (~1 min 15 sec): RBAC  - Deny in Action**
-Authenticate as the `demo-denied-auth` identity. Attempt `akeyless usc get`. Access denied  - the request never reaches Vault. This is what governance means in practice.
+**Chapter 6 (~1 min 30 sec): RBAC  - One policy denies both clusters**
+Authenticate as `demo-denied-auth`. Attempt `akeyless usc get` on backend USC — denied. Attempt on payments USC — also denied. One Akeyless role, two clusters enforced simultaneously.
 
-**Chapter 7 (~1 min): Centralized Audit Trail**
-Akeyless Console → Logs. Every operation from this demo is visible: USC reads, creates, HVP calls, and the denied access attempt  - all attributed, all timestamped, all in one place.
+**Chapter 7 (~1 min): Unified audit trail — both clusters, one log**
+Akeyless Console → Logs. Operations from both USC connectors, HVP calls, and both denial attempts — all in one log, all attributed, all timestamped.
 
 ---
 
@@ -243,7 +264,7 @@ Available in the GitHub repo under `demo/`:
 ### Links for Description / Blog Post
 - Akeyless Demo Request: https://www.akeyless.io/demo/
 - Akeyless Docs: https://docs.akeyless.io/docs/what-is-akeyless
-- Vault USC Docs: https://docs.akeyless.io/docs/hashicorp-vault-usc
+- Vault USC Docs: https://docs.akeyless.io/docs/hc-vault-universal-secrets-connector
 - HVP Docs: https://docs.akeyless.io/docs/hashicorp-vault-proxy
 - Blog post: [link to published blog]
 - GitHub repo (demo scripts): [link to repo]

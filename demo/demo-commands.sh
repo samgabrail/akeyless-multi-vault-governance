@@ -6,20 +6,33 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # ENV VAR SETUP — set these before starting the demo
 # ─────────────────────────────────────────────────────────────────────────────
-# export VAULT_ADDR='http://127.0.0.1:8200'
+# export VAULT_ADDR='http://127.0.0.1:8200'    # backend vault (active default)
+# export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
+# export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8201'
 # export VAULT_TOKEN='root'
-# export USC_NAME='demo-vault-usc'
+# export USC_BACKEND='demo-vault-usc-backend'
+# export USC_PAYMENTS='demo-vault-usc-payments'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 1: Verify Vault dev secrets
+# CHAPTER 1: Two isolated Vault instances — no Akeyless yet
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 1: Vault has our seeded secrets ---"
+echo "--- Chapter 1: Two separate Vault clusters, zero shared governance ---"
 
-# Confirm the secrets we seeded during setup are present in the local Vault dev server
+# Backend team's Vault (port 8200)
+export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 vault kv list secret/myapp
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
+
+# Payments team's Vault (port 8201) — completely separate cluster
+export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8201}"
+vault kv list secret/payments
+vault kv get secret/payments/stripe-key
+vault kv get secret/payments/db-url
+
+# Reset to backend vault for subsequent chapters
+export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,53 +40,62 @@ vault kv get secret/myapp/api-key
 # ─────────────────────────────────────────────────────────────────────────────
 echo "--- Chapter 2: Akeyless Gateway running on K8s ---"
 
-# Show the Akeyless Gateway deployed and healthy in the cluster
+# One Gateway bridges both Vault instances to the Akeyless control plane
 kubectl get pods -n akeyless
 kubectl get svc -n akeyless
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 3: List and read Vault secrets via Akeyless USC
+# CHAPTER 3: Read secrets from BOTH Vaults via Akeyless USC
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 3: Manage Vault secrets from Akeyless ---"
+echo "--- Chapter 3: Both Vaults governed from one Akeyless control plane ---"
 
-# The Universal Secrets Connector (USC) exposes existing Vault secrets through Akeyless.
-# No migration required — Vault is still the system of record.
-akeyless usc list --usc-name "$USC_NAME"
-akeyless usc get --usc-name "$USC_NAME" --secret-id "myapp/db-password"
-akeyless usc get --usc-name "$USC_NAME" --secret-id "myapp/api-key"
+# Backend team's Vault — via USC
+akeyless usc list --usc-name "$USC_BACKEND"
+akeyless usc get --usc-name "$USC_BACKEND" --secret-id "myapp/db-password"
+
+# Payments team's Vault — via USC
+akeyless usc list --usc-name "$USC_PAYMENTS"
+akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/stripe-key"
+
+# Key point: same CLI, same RBAC, same audit trail — two separate Vault clusters.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 4a: Two-way sync — Create in Akeyless, verify in Vault
+# CHAPTER 4a: Two-way sync — Akeyless → Vault (backend)
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 4a: Create via Akeyless USC → appears in Vault ---"
+echo "--- Chapter 4a: Create via Akeyless USC → appears in backend Vault ---"
 
-# Write a new secret through the Akeyless USC — this writes directly into Vault.
+# Write a new secret through Akeyless — it physically lands in backend Vault
 akeyless usc create \
-  --usc-name "$USC_NAME" \
+  --usc-name "$USC_BACKEND" \
   --secret-name "myapp/created-from-akeyless" \
   --value "value=hello-from-akeyless"
 
-# Verify it now exists natively in Vault — proves the write went all the way through
+# Verify it exists natively in backend Vault
+export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 vault kv get secret/myapp/created-from-akeyless
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 4b: Two-way sync — Create in Vault, verify in Akeyless
+# CHAPTER 4b: Two-way sync — Vault → Akeyless (payments)
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 4b: Create in Vault → visible via Akeyless USC ---"
+echo "--- Chapter 4b: Create in payments Vault → visible via Akeyless USC ---"
 
-# Write directly to Vault as you normally would
-vault kv put secret/myapp/created-from-vault value="hello-from-vault"
+# Write directly into the payments Vault
+export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8201}"
+vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
-# Verify Akeyless sees it immediately — no import step, no sync job
-akeyless usc list --usc-name "$USC_NAME"
-akeyless usc get --usc-name "$USC_NAME" --secret-id "myapp/created-from-vault"
+# Verify Akeyless sees it immediately — no sync job, no polling
+akeyless usc list --usc-name "$USC_PAYMENTS"
+akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/created-from-vault"
+
+# Reset to backend vault
+export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 5: HVP — use vault CLI against Akeyless backend
+# CHAPTER 5: HVP — vault CLI with zero code changes
 # ─────────────────────────────────────────────────────────────────────────────
 echo "--- Chapter 5: vault CLI via Akeyless HVP — zero code changes ---"
 
@@ -82,53 +104,51 @@ echo "--- Chapter 5: vault CLI via Akeyless HVP — zero code changes ---"
 # Example:
 #   echo -n 'p-xxxxxxxxxxxx..your-access-key' > ~/.vault-token
 
-# Save original Vault address so we can restore it after this chapter
 export ORIGINAL_VAULT_ADDR="$VAULT_ADDR"
 
-# Point the vault CLI at the Akeyless HashiCorp Vault Proxy endpoint.
-# No changes to application code — only the VAULT_ADDR env var changes.
+# One VAULT_ADDR change — that's it.
 export VAULT_ADDR='https://hvp.akeyless.io'
-# Show the audience the HVP token format: <Access Id>..<Access Key>
-# This is the only client-side change — no code changes required.
-cat ~/.vault-token
+cat ~/.vault-token   # show the <Access Id>..<Access Key> token format
 
-# Now run standard vault commands — they hit Akeyless, not the local Vault server.
-# The same commands, the same CLI, same workflow — Akeyless is now the backend.
+# Standard vault commands work unchanged — Akeyless is now the backend
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
 
-# Restore original Vault address
 export VAULT_ADDR="$ORIGINAL_VAULT_ADDR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 6: RBAC — show denied access
+# CHAPTER 6: RBAC — single policy denies access to BOTH Vaults
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 6: Akeyless RBAC — deny in action ---"
+echo "--- Chapter 6: One RBAC deny blocks access across both Vault clusters ---"
 
-# Authenticate as the denied identity (Access ID from akeyless-setup.sh output)
-# Replace <DENIED_ACCESS_ID> and <DENIED_ACCESS_KEY> with actual values
+# Authenticate as the denied identity
 akeyless auth \
   --access-id "<DENIED_ACCESS_ID>" \
   --access-key "<DENIED_ACCESS_KEY>"
 
-# Attempt to read a secret — this identity has no policy granting access
-akeyless usc get --usc-name "$USC_NAME" --secret-id "myapp/db-password"
-# Expected: Unauthorized / Permission denied
-# This proves that Akeyless RBAC enforcement sits in front of the Vault secrets.
+# Attempt access to backend Vault — denied
+akeyless usc get --usc-name "$USC_BACKEND" --secret-id "myapp/db-password"
+# Expected: Unauthorized
+
+# Attempt access to payments Vault — also denied (same policy, second cluster)
+akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/stripe-key"
+# Expected: Unauthorized
+
+# Re-authenticate as admin before continuing
+# akeyless auth --access-id p-xxxxxxxxxxxx --access-key <your-access-key>
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 7: Audit trail
+# CHAPTER 7: Centralized audit trail — both Vaults, one log
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 7: Centralized audit trail ---"
+echo "--- Chapter 7: One audit trail covers both Vault clusters ---"
 
-# Every operation from this demo — USC reads, writes, HVP calls, RBAC denials —
-# is captured in the Akeyless audit log. This is the single pane of glass for
-# all secret access across Vault and Akeyless.
+# Every operation from this demo — USC reads from both clusters, writes, HVP
+# calls, and both RBAC denials — is in a single Akeyless audit log.
 echo "Open: https://console.akeyless.io"
 echo "Navigate: Logs → filter by your Access ID or by action (get, list, create)"
-echo "Every USC operation, HVP call, and RBAC event is logged here."
+echo "Both USC connectors (backend + payments) appear in the same log."
 
 # Optional: fetch recent audit logs via CLI
-akeyless get-audit-event-log --limit 20
+akeyless get-audit-event-log --limit 30
