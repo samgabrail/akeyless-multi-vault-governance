@@ -1,51 +1,45 @@
 # =============================================================================
-# Akeyless API Gateway - Helm Values (Demo / Home Lab)
+# Akeyless Gateway - Helm Values (Demo / Home Lab)
 # =============================================================================
 #
-# Chart: akeyless/akeyless-api-gateway
+# Chart: akeyless/akeyless-gateway  (akeylesslabs.github.io/helm-charts)
 #
 # Add the Helm repository:
-#   helm repo add akeyless https://akeyless-community.github.io/helm-charts
+#   helm repo add akeyless https://akeylesslabs.github.io/helm-charts
 #   helm repo update
 #
 # Pre-create the credentials secret before deploying:
-#   kubectl create secret generic akeyless-admin-credentials \
-#     --from-literal=admin-access-key=<YOUR_AKEYLESS_ACCESS_KEY> \
-#     --namespace <YOUR_NAMESPACE>
+#   kubectl create secret generic akeyless-gateway-credentials \
+#     --namespace akeyless \
+#     --from-literal=gateway-access-key=<YOUR_AKEYLESS_ACCESS_KEY>
 #
 # Deploy with:
-#   helm upgrade --install akeyless-gateway akeyless/akeyless-api-gateway \
-#     --namespace <YOUR_NAMESPACE> \
+#   helm upgrade --install akeyless-gw akeyless/akeyless-gateway \
+#     --namespace akeyless \
 #     --create-namespace \
 #     --values demo/gateway-values.yaml
 #
-# IMPORTANT: Replace ALL <YOUR_...> placeholder values before deploying.
+# Gateway Config Manager: http://<EXTERNAL-IP>:8000
 # =============================================================================
 
-akeylessUserAuth:
-  # Your Akeyless access ID (format: p-xxxxxxxxxxxx)
-  adminAccessId: "<YOUR_AKEYLESS_ACCESS_ID>"
+globalConfig:
+  gatewayAuth:
+    # Your Akeyless access ID (format: p-xxxxxxxxxxxx)
+    gatewayAccessId: "p-9l5fttqf5q2iam"
+    gatewayAccessType: access_key
+    # K8s secret must contain key: gateway-access-key
+    gatewayCredentialsExistingSecret: "akeyless-gateway-credentials"
 
-  # Kubernetes secret containing the admin credentials
-  adminCredentialsSecretName: "akeyless-admin-credentials"
+  # Grant this access ID full admin rights on the Gateway
+  allowedAccessPermissions:
+    - name: Administrators
+      access_id: "p-9l5fttqf5q2iam"
+      permissions:
+        - admin
 
-  # Key within the secret that holds the access key / password
-  adminCredentialsSecretKey: "admin-access-key"
+gateway:
+  deployment:
+    replicaCount: 1
 
-service:
-  type: LoadBalancer
-  ports:
-    - name: web
-      port: 8000
-      targetPort: 8000
-    - name: hvp
-      port: 8200
-      targetPort: 8200
-
-resources:
-  requests:
-    cpu: "250m"
-    memory: "512Mi"
-  limits:
-    cpu: "1"
-    memory: "1Gi"
+  service:
+    type: LoadBalancer
