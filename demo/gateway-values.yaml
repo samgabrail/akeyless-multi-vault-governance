@@ -37,6 +37,9 @@ globalConfig:
       permissions:
         - admin
 
+  # TLS is terminated by Traefik ingress (see demo/gateway-ingress.yaml)
+  # The gateway pod serves plain HTTP; Traefik handles HTTPS + cert-manager renewal
+
 gateway:
   deployment:
     replicaCount: 1

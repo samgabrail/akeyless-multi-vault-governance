@@ -1,0 +1,36 @@
+# Traefik Ingress for Akeyless Gateway with Let's Encrypt TLS
+#
+# Prerequisites:
+#   - akeyless.tekanaid.com DNS → cluster public IP (port 80 + 443 forwarded)
+#   - cert-manager installed with letsencrypt-prod ClusterIssuer
+#   - Traefik ingress controller running
+#
+# Apply with:
+#   kubectl apply -f demo/gateway-ingress.yaml
+#
+# After cert is issued, set:
+#   export AKEYLESS_GATEWAY_URL="https://akeyless.tekanaid.com"
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: akeyless-gateway
+  namespace: akeyless
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - akeyless.tekanaid.com
+      secretName: akeyless-tekanaid-com-tls
+  rules:
+    - host: akeyless.tekanaid.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: akeyless-gw-akeyless-gateway
+                port:
+                  number: 8000
