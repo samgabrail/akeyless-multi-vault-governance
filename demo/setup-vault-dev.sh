@@ -42,7 +42,7 @@ echo "[1/6] Starting backend Vault (port 8200)..."
 vault server \
   -dev \
   -dev-root-token-id="${VAULT_TOKEN}" \
-  -dev-listen-address="127.0.0.1:8200" \
+  -dev-listen-address="0.0.0.0:8200" \
   >"${LOG_BACKEND}" 2>&1 &
 
 export VAULT_PID_BACKEND=$!
@@ -80,7 +80,7 @@ echo "[3/6] Starting payments Vault (port 8202)..."
 vault server \
   -dev \
   -dev-root-token-id="${VAULT_TOKEN}" \
-  -dev-listen-address="127.0.0.1:8202" \
+  -dev-listen-address="0.0.0.0:8202" \
   >"${LOG_PAYMENTS}" 2>&1 &
 
 export VAULT_PID_PAYMENTS=$!

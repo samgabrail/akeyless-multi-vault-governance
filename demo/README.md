@@ -264,6 +264,19 @@ No sync job. No import step. The USC reads directly from Vault, so anything writ
 
 ### Chapter 5: vault CLI via HVP (Zero Code Changes)
 
+**One-time setup — seed secrets into Akeyless KV via HVP:**
+
+HVP at `hvp.akeyless.io` uses Akeyless's own KV store as the backend for static secrets — it does not read through to your local Vault instances. Run these commands once before the demo (or before recording) to populate the Akeyless KV store with the same secret values used in Chapter 1:
+
+```bash
+export VAULT_ADDR='https://hvp.akeyless.io'
+vault kv put secret/myapp/db-password password="sup3r-s3cret-db-pass"
+vault kv put secret/myapp/api-key api_key="akl-demo-api-key-12345"
+export VAULT_ADDR='http://127.0.0.1:8200'   # restore
+```
+
+This is also the migration pattern in practice: teams write their existing Vault secrets into Akeyless via `vault kv put` through HVP, and their applications continue reading via `vault kv get` with no other changes.
+
 **Set up the HVP token:**
 
 ```bash
@@ -342,14 +355,14 @@ kill $VAULT_PID_BACKEND $VAULT_PID_PAYMENTS
 ### Remove Akeyless resources
 
 ```bash
-akeyless delete-auth-method --name demo-denied-auth
-akeyless delete-auth-method --name demo-readonly-auth
-akeyless delete-role --name demo-denied-role
-akeyless delete-role --name demo-readonly-role
-akeyless delete-usc --usc-name demo-vault-usc-payments
-akeyless delete-usc --usc-name demo-vault-usc-backend
-akeyless delete-target --name demo-vault-target-payments
-akeyless delete-target --name demo-vault-target-backend
+akeyless delete-auth-methods --path /demo-denied-auth --profile demo
+akeyless delete-auth-methods --path /demo-readonly-auth --profile demo
+akeyless delete-role --name demo-denied-role --profile demo
+akeyless delete-role --name demo-readonly-role --profile demo
+akeyless delete-item --item-name /demo-vault-usc-payments --profile demo
+akeyless delete-item --item-name /demo-vault-usc-backend --profile demo
+akeyless target delete --name demo-vault-target-payments --profile demo
+akeyless target delete --name demo-vault-target-backend --profile demo
 ```
 
 ### Remove the Kubernetes Gateway

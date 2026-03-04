@@ -112,7 +112,7 @@ akeyless CLI ──→ USC ──→ Akeyless Gateway ──→ Vault Target ─
 
 Here's what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds a connection to your Vault instance through what Akeyless calls a Vault Target. The Universal Secret Connector sits on top of that target, so when you do a USC read through the Akeyless CLI, the request goes: Akeyless control plane, down to the Gateway, through the Vault Target, and into Vault itself. All governed, all logged.
 
-For the vault CLI path, Akeyless exposes a public endpoint that speaks the native Vault HTTP API. Your vault client doesn't know the difference. The request hits Akeyless, gets authenticated and authorized against Akeyless policies, and Akeyless proxies it to your Vault instance.
+For the vault CLI path, Akeyless exposes a public endpoint that speaks the native Vault HTTP API. Your vault client doesn't know the difference. The request hits Akeyless, gets authenticated and authorized against Akeyless policies, and Akeyless serves the secret from its own KV store — or from one of its 20+ dynamic secret producers for dynamic credentials. The vault CLI sees a Vault response; Akeyless is the backend.
 
 In both cases, every operation hits the same Akeyless control plane and produces the same audit log entry. That's the key point.
 
@@ -330,15 +330,12 @@ Terminal showing:
 export VAULT_ADDR='https://hvp.akeyless.io'
 
 # Token format: <Access Id>..<Access Key>  (two dots between them)
-# Example: p-xxxxxxxxxxxx..your-access-key
 cat ~/.vault-token
 
 # Same vault commands, completely unchanged
-vault kv list secret/myapp
-
 vault kv get secret/myapp/db-password
 
-vault kv get secret/myapp/created-from-akeyless
+vault kv get secret/myapp/api-key
 ```
 
 Output identical to what we saw in Chapter 1.
@@ -347,13 +344,15 @@ Output identical to what we saw in Chapter 1.
 
 Now for the HashiCorp Vault Proxy. This is the path for teams where changing their tooling is off the table.
 
-One environment variable change. `VAULT_ADDR` now points at `hvp.akeyless.io` instead of the local Vault server. That's it. That's the entire change.
+One environment variable change. `VAULT_ADDR` now points at `hvp.akeyless.io`. That's it.
 
-The token format is your Akeyless Access ID and Access Key joined with two dots — so it looks like `p-xxxxxxxxxxxx..your-access-key`. In a real deployment you'd store this in `~/.vault-token` or pass it through whatever token injection mechanism your teams already use. The vault CLI doesn't care what the token value is; it just passes it as a header.
+The token format is your Akeyless Access ID and Access Key joined with two dots. The vault CLI doesn't care what the token value is — it just passes it as a header.
 
-Now let's run the exact same commands from Chapter 1. `vault kv list secret/myapp` — same output. `vault kv get secret/myapp/db-password` — same password. `vault kv get secret/myapp/created-from-akeyless` — the one we created via Akeyless USC, now visible through the vault CLI.
+Before I run the demo commands, a quick note on how HVP works for static KV secrets: HVP uses Akeyless's own KV store as the backend. It is not reading through to the local Vault instances we showed in Chapter 1. To populate it for this demo, we ran `vault kv put` against HVP — the exact same command teams use to write secrets — which landed those secrets in Akeyless's KV store. That's also the migration path: teams write their existing secrets into Akeyless via `vault kv put` through HVP, and their applications keep reading via `vault kv get` with zero changes.
 
-Same command. Same output. Zero code changes. Zero changes to scripts, pipelines, or runbooks. Akeyless is now the backend, every request is authenticated and authorized by Akeyless, and every request is logged.
+`vault kv get secret/myapp/db-password` — same password. `vault kv get secret/myapp/api-key` — same key.
+
+Same command. Same output. Zero code changes. Zero changes to scripts, pipelines, or runbooks. Akeyless is the backend, every request is authenticated and authorized, and every request is logged.
 
 That is what zero-disruption migration looks like in practice.
 

@@ -12,6 +12,8 @@
 # export VAULT_TOKEN='root'
 # export USC_BACKEND='demo-vault-usc-backend'
 # export USC_PAYMENTS='demo-vault-usc-payments'
+# export AKEYLESS_GW='https://192.168.1.82:8000'    # your Gateway URL
+# export AKEYLESS_PROFILE='demo'                     # akeyless CLI profile name
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,12 +53,24 @@ kubectl get svc -n akeyless
 echo "--- Chapter 3: Both Vaults governed from one Akeyless control plane ---"
 
 # Backend team's Vault — via USC
-akeyless usc list --usc-name "$USC_BACKEND"
-akeyless usc get --usc-name "$USC_BACKEND" --secret-id "myapp/db-password"
+akeyless usc list \
+  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+akeyless usc get \
+  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --secret-id "secret/myapp/db-password" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Payments team's Vault — via USC
-akeyless usc list --usc-name "$USC_PAYMENTS"
-akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/stripe-key"
+akeyless usc list \
+  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+akeyless usc get \
+  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --secret-id "secret/payments/stripe-key" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Key point: same CLI, same RBAC, same audit trail — two separate Vault clusters.
 
@@ -67,10 +81,14 @@ akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/stripe-key"
 echo "--- Chapter 4a: Create via Akeyless USC → appears in backend Vault ---"
 
 # Write a new secret through Akeyless — it physically lands in backend Vault
+# Value must be base64-encoded JSON matching Vault KV format: {"key": "value"}
+ENCODED_VALUE=$(echo -n '{"value":"hello-from-akeyless"}' | base64 -w0)
+
 akeyless usc create \
-  --usc-name "$USC_BACKEND" \
-  --secret-name "myapp/created-from-akeyless" \
-  --value "value=hello-from-akeyless"
+  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --secret-name "secret/myapp/created-from-akeyless" \
+  --value "$ENCODED_VALUE" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Verify it exists natively in backend Vault
 export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
@@ -87,8 +105,14 @@ export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
 # Verify Akeyless sees it immediately — no sync job, no polling
-akeyless usc list --usc-name "$USC_PAYMENTS"
-akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/created-from-vault"
+akeyless usc list \
+  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+akeyless usc get \
+  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --secret-id "secret/payments/created-from-vault" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Reset to backend vault
 export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
@@ -99,9 +123,18 @@ export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 # ─────────────────────────────────────────────────────────────────────────────
 echo "--- Chapter 5: vault CLI via Akeyless HVP — zero code changes ---"
 
-# PRE-REQUISITE: Set up ~/.vault-token before running this chapter.
-# Format: <Access Id>..<Access Key>  (two dots between them)
-# Example:
+# PRE-REQUISITE (one-time, run before the demo):
+#
+# HVP at hvp.akeyless.io uses Akeyless's own KV store as the backend for
+# static secrets — it does not read through to the local Vault instances.
+# Seed the demo secrets into Akeyless KV via HVP before recording:
+#
+#   export VAULT_ADDR='https://hvp.akeyless.io'
+#   vault kv put secret/myapp/db-password password="sup3r-s3cret-db-pass"
+#   vault kv put secret/myapp/api-key api_key="akl-demo-api-key-12345"
+#   export VAULT_ADDR='http://127.0.0.1:8200'
+#
+# Also set ~/.vault-token:
 #   echo -n 'p-xxxxxxxxxxxx..your-access-key' > ~/.vault-token
 
 export ORIGINAL_VAULT_ADDR="$VAULT_ADDR"
@@ -122,21 +155,28 @@ export VAULT_ADDR="$ORIGINAL_VAULT_ADDR"
 # ─────────────────────────────────────────────────────────────────────────────
 echo "--- Chapter 6: One RBAC deny blocks access across both Vault clusters ---"
 
-# Authenticate as the denied identity
-akeyless auth \
+# Get a token for the denied identity (replace with actual values from akeyless-setup.sh output)
+DENIED_TOKEN=$(akeyless auth \
   --access-id "<DENIED_ACCESS_ID>" \
-  --access-key "<DENIED_ACCESS_KEY>"
+  --access-key "<DENIED_ACCESS_KEY>" \
+  --access-type access_key \
+  --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 # Attempt access to backend Vault — denied
-akeyless usc get --usc-name "$USC_BACKEND" --secret-id "myapp/db-password"
-# Expected: Unauthorized
+akeyless usc get \
+  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --secret-id "secret/myapp/db-password" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --token "$DENIED_TOKEN"
+# Expected: 403 Forbidden / no read permission
 
 # Attempt access to payments Vault — also denied (same policy, second cluster)
-akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "payments/stripe-key"
-# Expected: Unauthorized
-
-# Re-authenticate as admin before continuing
-# akeyless auth --access-id p-xxxxxxxxxxxx --access-key <your-access-key>
+akeyless usc get \
+  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --secret-id "secret/payments/stripe-key" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --token "$DENIED_TOKEN"
+# Expected: 403 Forbidden / no read permission
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +189,3 @@ echo "--- Chapter 7: One audit trail covers both Vault clusters ---"
 echo "Open: https://console.akeyless.io"
 echo "Navigate: Logs → filter by your Access ID or by action (get, list, create)"
 echo "Both USC connectors (backend + payments) appear in the same log."
-
-# Optional: fetch recent audit logs via CLI
-akeyless get-audit-event-log --limit 30
