@@ -1,62 +1,36 @@
-# Traefik IngressRoute + ServersTransport for Akeyless Gateway HTTPS
+# Self-signed TLS Certificate for Akeyless Gateway
 #
-# The Akeyless Gateway always serves HTTPS internally. Traefik terminates
-# TLS with the Let's Encrypt cert and forwards to the gateway backend
-# via HTTPS (with insecureSkipVerify for the internal hop).
-#
-# Prerequisites:
-#   - cert-manager installed with letsencrypt-prod ClusterIssuer
-#   - akeyless.tekanaid.com DNS → cluster public IP (port 80 + 443 forwarded to Traefik)
-#   - CoreDNS NodeHosts entry: 192.168.1.81 akeyless.tekanaid.com (hairpin NAT fix)
+# The gateway is internal-only, accessed directly via its LoadBalancer IP.
+# No ingress controller or domain required.
 #
 # Apply with:
 #   kubectl apply -f demo/gateway-ingress.yaml
 #
-# Gateway Config Manager: https://akeyless.tekanaid.com
-# Set: export AKEYLESS_GATEWAY_URL="https://akeyless.tekanaid.com"
+# Then set:
+#   export AKEYLESS_GATEWAY_URL="https://192.168.1.82:8000"
+#
+# Note: self-signed cert — browsers and CLIs will show a warning.
+# Add the CA to your trust store, or use --insecure where supported.
 ---
-# cert-manager Certificate — auto-renews 30 days before expiry
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-clusterissuer
+spec:
+  selfSigned: {}
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: akeyless-tekanaid-com-tls
+  name: akeyless-gateway-tls
   namespace: akeyless
 spec:
-  secretName: akeyless-tekanaid-com-tls
+  secretName: akeyless-gateway-tls
   issuerRef:
-    name: letsencrypt-prod
+    name: selfsigned-clusterissuer
     kind: ClusterIssuer
-  dnsNames:
-    - akeyless.tekanaid.com
-  duration: 2160h   # 90 days
-  renewBefore: 720h # renew 30 days before expiry
----
-# ServersTransport — allows Traefik to connect to the gateway's HTTPS backend
-# without verifying the gateway's internal self-signed cert
-apiVersion: traefik.io/v1alpha1
-kind: ServersTransport
-metadata:
-  name: akeyless-backend
-  namespace: akeyless
-spec:
-  insecureSkipVerify: true
----
-# IngressRoute — routes akeyless.tekanaid.com:443 to the gateway service
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: akeyless-gateway
-  namespace: akeyless
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`akeyless.tekanaid.com`)
-      kind: Rule
-      services:
-        - name: akeyless-gw-akeyless-gateway
-          port: 8000
-          scheme: https
-          serversTransport: akeyless-backend
-  tls:
-    secretName: akeyless-tekanaid-com-tls
+  commonName: akeyless-gateway
+  ipAddresses:
+    - 192.168.1.82
+  duration: 8760h    # 1 year
+  renewBefore: 720h  # renew 30 days before expiry

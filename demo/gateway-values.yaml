@@ -37,8 +37,14 @@ globalConfig:
       permissions:
         - admin
 
-  # TLS is terminated by Traefik ingress (see demo/gateway-ingress.yaml)
-  # The gateway pod serves plain HTTP; Traefik handles HTTPS + cert-manager renewal
+  # Self-signed TLS cert issued by cert-manager (selfsigned-clusterissuer)
+  # IP SAN: 192.168.1.82  — access via https://192.168.1.82:8000
+  # Secret created by: kubectl apply -f demo/gateway-ingress.yaml
+  TLSConf:
+    enabled: true
+    tlsExistingSecret: "akeyless-gateway-tls"
+    tlsCertificateSecretKeyName: tls.crt
+    tlsPrivateKeySecretKeyName: tls.key
 
 gateway:
   deployment:
