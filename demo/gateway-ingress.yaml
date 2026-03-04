@@ -1,36 +1,62 @@
-# Traefik Ingress for Akeyless Gateway with Let's Encrypt TLS
+# Traefik IngressRoute + ServersTransport for Akeyless Gateway HTTPS
+#
+# The Akeyless Gateway always serves HTTPS internally. Traefik terminates
+# TLS with the Let's Encrypt cert and forwards to the gateway backend
+# via HTTPS (with insecureSkipVerify for the internal hop).
 #
 # Prerequisites:
-#   - akeyless.tekanaid.com DNS → cluster public IP (port 80 + 443 forwarded)
 #   - cert-manager installed with letsencrypt-prod ClusterIssuer
-#   - Traefik ingress controller running
+#   - akeyless.tekanaid.com DNS → cluster public IP (port 80 + 443 forwarded to Traefik)
+#   - CoreDNS NodeHosts entry: 192.168.1.81 akeyless.tekanaid.com (hairpin NAT fix)
 #
 # Apply with:
 #   kubectl apply -f demo/gateway-ingress.yaml
 #
-# After cert is issued, set:
-#   export AKEYLESS_GATEWAY_URL="https://akeyless.tekanaid.com"
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Gateway Config Manager: https://akeyless.tekanaid.com
+# Set: export AKEYLESS_GATEWAY_URL="https://akeyless.tekanaid.com"
+---
+# cert-manager Certificate — auto-renews 30 days before expiry
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: akeyless-tekanaid-com-tls
+  namespace: akeyless
+spec:
+  secretName: akeyless-tekanaid-com-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - akeyless.tekanaid.com
+  duration: 2160h   # 90 days
+  renewBefore: 720h # renew 30 days before expiry
+---
+# ServersTransport — allows Traefik to connect to the gateway's HTTPS backend
+# without verifying the gateway's internal self-signed cert
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: akeyless-backend
+  namespace: akeyless
+spec:
+  insecureSkipVerify: true
+---
+# IngressRoute — routes akeyless.tekanaid.com:443 to the gateway service
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
 metadata:
   name: akeyless-gateway
   namespace: akeyless
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
-  ingressClassName: traefik
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`akeyless.tekanaid.com`)
+      kind: Rule
+      services:
+        - name: akeyless-gw-akeyless-gateway
+          port: 8000
+          scheme: https
+          serversTransport: akeyless-backend
   tls:
-    - hosts:
-        - akeyless.tekanaid.com
-      secretName: akeyless-tekanaid-com-tls
-  rules:
-    - host: akeyless.tekanaid.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: akeyless-gw-akeyless-gateway
-                port:
-                  number: 8000
+    secretName: akeyless-tekanaid-com-tls
