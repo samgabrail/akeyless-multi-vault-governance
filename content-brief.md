@@ -28,6 +28,8 @@ Akeyless enforces governance as an overlay layer. Vault ACL policies remain inta
 
 **5. The migration can happen at your pace.** Akeyless is a control plane, not a cutover event. Teams can adopt it namespace by namespace, application by application. The governance model does not change at any point in that process.
 
+**6. Clarify demo vs production topology.** The demo intentionally uses one Gateway for two Vault instances in one private network. Production deployments usually place Vault clusters per geography close to workloads, use DR/Performance Replication when on Vault Enterprise, and deploy one Akeyless Gateway per private location/region. Many organizations still run isolated Vault clusters with no replication, which is where USC + multi-vault governance is especially valuable.
+
 ---
 
 ## Blog Post Outline
@@ -47,6 +49,7 @@ Akeyless enforces governance as an overlay layer. Vault ACL policies remain inta
 - Namespace-level RBAC duplication
 - SIEM pipeline configuration per cluster
 - Ongoing policy drift management
+- Regional topology reality: most teams keep Vault close to workloads for latency; Enterprise teams may use DR/Performance Replication, while many organizations still run isolated clusters with no replication
 - Akeyless centralizes this without additional cluster management or migration projects.
 
 **Why Native Vault Governance Breaks at Scale**
@@ -73,6 +76,7 @@ Akeyless enforces governance as an overlay layer. Vault ACL policies remain inta
   - `vault CLI → hvp.akeyless.io → Akeyless Control Plane`
   - `akeyless CLI → USC → Akeyless Gateway → Vault Target → HashiCorp Vault KV`
   - Both paths converge at Akeyless RBAC + Audit Log
+- Explicit note: demo uses one Gateway for two local Vaults; production usually uses one Gateway per private location/region
 
 **Two-Way Secret Sync**
 - Write from Akeyless via USC → secret physically lands in Vault KV → Vault-native team reads it with `vault kv get` unchanged
@@ -177,7 +181,7 @@ Show: USC vs HVP side-by-side comparison
 
 Show: Architecture diagram with both traffic paths
 
-*"Here's what it looks like under the hood. The Akeyless Gateway lives in your environment  - in this demo it's on a Kubernetes cluster. It holds the connection to your Vault instance through a Vault Target.*
+*"Here's what it looks like under the hood. The Akeyless Gateway lives in your environment  - in this demo it's on a Kubernetes cluster. It holds the connection to your Vault instance through a Vault Target. In production, you normally deploy one Gateway per private location/region where Vault runs.*
 
 *The USC sits on top of that. When you run an akeyless usc command, it flows through the Gateway, hits the Vault Target, reads or writes directly to Vault KV, and logs the operation in Akeyless.*
 
@@ -191,7 +195,7 @@ Show: Architecture diagram with both traffic paths
 
 Show: Numbered chapter list
 
-*"Here's what we're going to cover in the demo: verify our Vault dev server has secrets, connect the Akeyless Gateway, read those secrets via USC, show two-way sync in both directions, use the vault CLI unchanged through HVP, demonstrate an RBAC denial, and look at the centralized audit trail. Let's go."*
+*"Here's what we're going to cover in the demo: verify our Vault dev servers have secrets, connect the Akeyless Gateway, read those secrets via USC, show two-way sync in both directions, use the vault CLI unchanged through HVP, demonstrate an RBAC denial, and look at the centralized audit trail. Let's go."*
 
 ---
 
@@ -202,8 +206,8 @@ Show: Numbered chapter list
 **Chapter 1 (~1 min 15 sec): Two isolated Vault instances — no shared governance**
 Two Vault dev servers running: backend team (port 8200, `secret/myapp/`) and payments team (port 8202, `secret/payments/`). Show `vault kv list` and `vault kv get` against each. Standard Vault — no Akeyless yet. Establishes the governance gap: two clusters, no shared audit, no shared RBAC.
 
-**Chapter 2 (~45 sec): One Gateway bridges both**
-`kubectl get pods -n akeyless`. One Gateway pod connected to both Vault instances via separate Vault Targets and USCs.
+**Chapter 2 (~45 sec): Demo Gateway bridges both**
+`kubectl get pods -n akeyless`. One Gateway pod connected to both Vault instances via separate Vault Targets and USCs for demo simplicity. Clarify that production typically uses one Gateway per private location/region.
 
 **Chapter 3 (~1 min 30 sec): Both Vaults from one control plane**
 `akeyless usc list` and `akeyless usc get` against `demo-vault-usc-backend`, then against `demo-vault-usc-payments`. Same CLI, same RBAC, same audit trail — two separate clusters governed simultaneously.
@@ -249,6 +253,7 @@ Akeyless Console → Logs. Operations from both USC connectors, HVP calls, and b
 - `vault` CLI installed, `vault server -dev` accessible on port 8200
 - `akeyless` CLI installed and authenticated
 - Akeyless Gateway deployed on K8s cluster (`demo/gateway-values.yaml`)
+- Topology callout included: single Gateway in demo only; production generally uses one Gateway per private location/region
 - Gateway external IP/URL available
 - `akeyless-setup.sh` run to create Vault Target, USC, and RBAC roles
 - Vault dev mode running with seeded secrets (`demo/setup-vault-dev.sh`)
@@ -278,3 +283,4 @@ Available in the GitHub repo under `demo/`:
 3. **Two-way sync, real-time**  - Write from either plane, visible on both. No sync jobs, no polling intervals, no stale data.
 4. **One audit trail regardless of tool**  - vault CLI calls through HVP, akeyless usc commands, even denied attempts  - all logged in one place, forwardable to 8 SIEM destinations.
 5. **Incremental path, immediate governance**  - Connect USC or HVP and governance starts immediately. Migration happens on your schedule, at your granularity, without changing the governance model.
+6. **Production topology is regional**  - Place Vault close to workloads, use replication where needed, and run one Akeyless Gateway per private location. The one-Gateway pattern in this repo is demo-only.

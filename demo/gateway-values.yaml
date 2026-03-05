@@ -20,6 +20,11 @@
 #     --values demo/gateway-values.yaml
 #
 # Gateway Config Manager: http://<EXTERNAL-IP>:8000
+#
+# Topology note:
+#   This file configures a single Gateway for the demo only.
+#   Production deployments typically run one Gateway per private location/region
+#   (for example, us-east Vault + us-east Gateway, us-central Vault + us-central Gateway).
 # =============================================================================
 
 globalConfig:

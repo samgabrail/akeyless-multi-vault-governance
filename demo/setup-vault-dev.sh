@@ -12,6 +12,11 @@ set -euo pipefail
 # Each instance is a fully independent Vault cluster. Neither knows the other
 # exists. This is the starting point for the multi-vault governance demo.
 #
+# Production note:
+#   Teams usually place Vault clusters close to workloads in each geography to
+#   reduce latency. Vault Enterprise users may add DR/Performance Replication,
+#   while many organizations still run isolated clusters with no replication.
+#
 # Usage:
 #   source demo/setup-vault-dev.sh   # exports VAULT_PID_BACKEND + VAULT_PID_PAYMENTS
 #   # or

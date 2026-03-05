@@ -56,6 +56,10 @@ This frames a natural progression. You start by layering Akeyless governance ove
 
 This becomes even more critical in multi-Vault environments, where different teams operate separate clusters across regions or clouds. Akeyless provides centralized RBAC and audit across all Vault instances, not just one.
 
+In production, most teams place Vault clusters per geographic region and as close to applications as possible to reduce latency. Vault Enterprise users often add Disaster Recovery replication or Performance Replication between regions. But many organizations still operate isolated Vault clusters with no replication, because different teams own different environments or because replication cost and complexity is not justified for every workload.
+
+That isolated-cluster model is where Akeyless USC and multi-vault governance are especially useful: secrets stay in each local Vault, while RBAC and audit become centralized across all clusters.
+
 It is worth being precise about what that initial state — call it phase zero — actually looks like. On day one, before any secrets have moved, the Akeyless audit trail is active over every Vault access that flows through USC or HVP. That is not a partial view: it covers every read, write, and list operation against the paths you have connected. RBAC is already enforced centrally at this point — access decisions are made by Akeyless policies regardless of where the secret physically lives. A team that has not started migrating is still governed by the same access control model as a team that has completed it. When migration does begin, it proceeds at whatever granularity makes sense: one team's namespace, one application's secret set, one service at a time. The underlying governance model does not change at any point in that process.
 
 ## Two Integration Models
@@ -124,6 +128,8 @@ Traffic flows:
 
 The Akeyless Gateway is the only component that needs to run inside your network. It handles outbound connections to the Akeyless control plane (no inbound ports required) and inbound connections from the control plane for proxied requests. The Gateway maintains the authenticated connection to Vault via the Vault Target configuration — your Vault token never leaves your environment.
 
+In a real production deployment, this is typically one Gateway per private location or region, close to the Vault cluster in that location. For example, a Vault cluster in AWS us-east would normally use a Gateway in us-east, and a Vault cluster in us-central would use a separate Gateway in us-central. The single-Gateway setup in this demo is intentionally simplified because both demo Vault instances run in the same private network.
+
 For the USC path, the flow is: Akeyless CLI authenticates to the control plane, the control plane authorizes the request against your access policies, the authorized request is forwarded to the Gateway, the Gateway authenticates to Vault using the Vault Target credentials, fetches or writes the secret, and returns the result through the control plane to the CLI. Every step after the initial authentication check produces an audit log entry.
 
 For the HVP path, the vault CLI sends a standard Vault HTTP request to `hvp.akeyless.io`. The Akeyless control plane authenticates the request using the Akeyless access credential passed as the Vault token, authorizes it against the relevant access policies, and serves the operation from Akeyless's own KV store (for static secrets) or from an Akeyless dynamic secret producer. Same audit log, same RBAC enforcement.
@@ -144,7 +150,7 @@ Your platform team adopts Akeyless today. Your legacy applications team keeps us
 
 ## Getting Started
 
-The demo in this post's companion video runs two Vault dev servers locally — one representing a backend team and one representing a payments team — alongside an Akeyless Gateway deployed on a local Kubernetes cluster using Helm. The setup requires the vault CLI, the akeyless CLI, kubectl, and helm. An Akeyless account is required — the free tier at console.akeyless.io is sufficient to run everything shown in the demo.
+The demo in this post's companion video runs two Vault dev servers locally — one representing a backend team and one representing a payments team — alongside an Akeyless Gateway deployed on a local Kubernetes cluster using Helm. This one-Gateway-for-two-Vaults setup is demo-only; production deployments typically run one Gateway per private location/region. The setup requires the vault CLI, the akeyless CLI, kubectl, and helm. An Akeyless account is required — the free tier at console.akeyless.io is sufficient to run everything shown in the demo.
 
 The demo repository contains setup scripts that handle the full configuration. Three commands cover the initial environment:
 
@@ -161,7 +167,7 @@ The first script starts both Vault dev servers and seeds demo secrets in each. T
 
 Chapter 1 established the starting point: two completely independent Vault clusters. The backend team's Vault (port 8200) had secrets at `secret/myapp/db-password` and `secret/myapp/api-key`. The payments team's Vault (port 8202) had entirely separate secrets at `secret/payments/stripe-key` and `secret/payments/db-url`. We listed and retrieved secrets from each using the vault CLI pointed at each instance directly. No governance, no shared visibility — just two isolated clusters, each its own island.
 
-Chapter 2 shifted to the Kubernetes side to confirm the Akeyless Gateway was running. One Gateway pod handles connections to both Vault instances through separate Vault Targets. Seeing it in a running state confirmed the bridge was in place before the USC steps began.
+Chapter 2 shifted to the Kubernetes side to confirm the Akeyless Gateway was running. In this demo, one Gateway pod handles connections to both Vault instances through separate Vault Targets. In production, you would usually deploy one Gateway per private location/region and connect each local Vault cluster to its local Gateway.
 
 Chapter 3 was the first demonstration of what centralized governance actually looks like. We switched to the Akeyless CLI and ran `akeyless usc list` twice — once against `demo-vault-usc-backend` and once against `demo-vault-usc-payments`. Both Vault clusters appeared in the same CLI session. We then retrieved individual secrets from each with `akeyless usc get`. Nothing had moved from either Vault. The USCs read directly from their respective instances. But every one of those reads was authenticated against Akeyless, authorized against the same access policies, and logged in the same audit trail. Two clusters, one governance layer, activated with no migration.
 

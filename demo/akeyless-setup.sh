@@ -11,6 +11,13 @@
 # A single set of Akeyless RBAC roles governs access to secrets across both,
 # demonstrating centralized governance without per-cluster policy management.
 #
+# Topology note:
+#   - This demo uses ONE Gateway URL for both Vaults to keep setup simple.
+#   - Production deployments usually run one Gateway per private location/region,
+#     close to each local Vault cluster and its workloads.
+#   - Vault Enterprise teams may use DR or Performance Replication, but many
+#     organizations still run isolated Vault clusters with no replication.
+#
 # Prerequisites:
 #   - akeyless CLI installed and authenticated
 #   - Both Vault dev servers running (see setup-vault-dev.sh)

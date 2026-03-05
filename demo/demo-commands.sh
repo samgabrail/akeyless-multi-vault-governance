@@ -42,7 +42,9 @@ export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 # ─────────────────────────────────────────────────────────────────────────────
 echo "--- Chapter 2: Akeyless Gateway running on K8s ---"
 
-# One Gateway bridges both Vault instances to the Akeyless control plane
+# Demo topology: one Gateway bridges both Vault instances in one private network.
+# Production topology: deploy one Gateway per private location/region near each
+# Vault cluster and its application workloads.
 kubectl get pods -n akeyless
 kubectl get svc -n akeyless
 

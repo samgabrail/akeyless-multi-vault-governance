@@ -8,6 +8,8 @@ Neither Vault instance knows the other exists. There is no shared policy, no sha
 
 The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue using the `vault` CLI unchanged while Akeyless handles authentication, authorization, and audit logging behind the scenes.
 
+> **Production topology clarification:** This repo uses one Akeyless Gateway for both Vault instances only to keep the demo small. In production, teams usually place Vault clusters per region and close to workloads for latency, and deploy one Akeyless Gateway per private location/region (for example, us-east Vault with a us-east Gateway, us-central Vault with a us-central Gateway). Vault Enterprise teams may use DR or Performance Replication, but many organizations run isolated Vault clusters with no replication. USC plus Akeyless multi-vault governance is designed for exactly that isolated-cluster model.
+
 ---
 
 ## What You'll See
@@ -15,7 +17,7 @@ The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue u
 | Chapter | What It Proves |
 |---|---|
 | **1 — Two Vault baselines** | Two separate Vault instances, each with real secrets, no shared governance |
-| **2 — Gateway health check** | One Akeyless Gateway bridges both Vault instances to the control plane |
+| **2 — Gateway health check** | Demo shows one Akeyless Gateway bridging both Vault instances (production is typically one Gateway per private location) |
 | **3 — Both Vaults from one control plane** | USC lists and reads secrets from both clusters — same CLI, same policies, same audit trail |
 | **4a — Two-way sync (Akeyless → Vault)** | Write a secret via Akeyless USC; it lands natively in backend Vault |
 | **4b — Two-way sync (Vault → Akeyless)** | Write natively in payments Vault; Akeyless sees it immediately with no sync job |
@@ -104,7 +106,7 @@ What this does:
 
 ## Step 2: Deploy Akeyless Gateway on Kubernetes
 
-One Gateway handles connections to both Vault instances.
+For this demo, one Gateway handles connections to both Vault instances. In production, deploy one Gateway per private location/region, close to the local Vault cluster and application workloads.
 
 ### 2a: Add the Helm chart repository
 
@@ -205,14 +207,14 @@ vault kv get secret/payments/db-url
 
 ---
 
-### Chapter 2: One Gateway, Two Clusters
+### Chapter 2: Demo Gateway, Two Clusters
 
 ```bash
 kubectl get pods -n akeyless
 kubectl get svc -n akeyless
 ```
 
-One Gateway pod bridges both Vault instances to the Akeyless control plane.
+In this demo, one Gateway pod bridges both Vault instances to the Akeyless control plane. In production, this is usually one Gateway per private location/region.
 
 ---
 

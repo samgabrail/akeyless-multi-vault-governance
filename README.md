@@ -35,6 +35,15 @@ export AKEYLESS_GATEWAY_URL='https://<your-gateway-ip>:8000'
 source demo/demo-commands.sh
 ```
 
+## Demo Topology vs Production
+
+- **Demo topology:** Two isolated Vault instances share one Akeyless Gateway, and everything runs in the same private network for simplicity.
+- **Typical production Vault topology:** One Vault cluster per geographic location, deployed close to application workloads to reduce latency.
+- **Vault Enterprise pattern:** Teams often use Disaster Recovery replication or Performance Replication between regions.
+- **Common real-world pattern:** Many organizations run isolated Vault clusters with no replication due to ownership, cost, or operational boundaries.
+- **Why Akeyless matters here:** USC plus centralized multi-vault governance gives one RBAC and audit layer across those isolated clusters.
+- **Typical production Gateway topology:** One Akeyless Gateway per private location/region (for example, us-east Vault + us-east Gateway, us-central Vault + us-central Gateway).
+
 ## Key Concepts Demonstrated
 
 - **USC (Universal Secret Connector):** Manage secrets that physically live in Vault via the Akeyless control plane — list, read, create, update, delete — all governed by Akeyless RBAC
@@ -53,5 +62,5 @@ source demo/demo-commands.sh
 ## Related Resources
 
 - [Akeyless Docs](https://docs.akeyless.io/docs/what-is-akeyless)
-- [HashiCorp Vault USC](https://docs.akeyless.io/docs/hashicorp-vault-usc)
+- [HashiCorp Vault USC](https://docs.akeyless.io/docs/hc-vault-universal-secrets-connector)
 - [HashiCorp Vault Proxy (HVP)](https://docs.akeyless.io/docs/hashicorp-vault-proxy)

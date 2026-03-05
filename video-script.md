@@ -110,7 +110,9 @@ akeyless CLI ──→ USC ──→ Akeyless Gateway ──→ Vault Target ─
 
 **Narration:**
 
-Here's what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds a connection to your Vault instance through what Akeyless calls a Vault Target. The Universal Secret Connector sits on top of that target, so when you do a USC read through the Akeyless CLI, the request goes: Akeyless control plane, down to the Gateway, through the Vault Target, and into Vault itself. All governed, all logged.
+Here’s what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds a connection to your Vault instance through what Akeyless calls a Vault Target. The Universal Secret Connector sits on top of that target, so when you do a USC read through the Akeyless CLI, the request goes: Akeyless control plane, down to the Gateway, through the Vault Target, and into Vault itself. All governed, all logged.
+
+One topology clarification: this demo uses a single Gateway for both Vault clusters because everything is in one private network. In production, you typically deploy one Gateway per private location or region, close to each local Vault cluster.
 
 For the vault CLI path, Akeyless exposes a public endpoint that speaks the native Vault HTTP API. Your vault client doesn't know the difference. The request hits Akeyless, gets authenticated and authorized against Akeyless policies, and Akeyless serves the secret from its own KV store — or from one of its 20+ dynamic secret producers for dynamic credentials. The vault CLI sees a Vault response; Akeyless is the backend.
 
@@ -127,7 +129,7 @@ In both cases, every operation hits the same Akeyless control plane and produces
 > **What We're About to Do**
 >
 > 1. Show two isolated Vault instances — no shared governance
-> 2. Confirm one Akeyless Gateway bridges both
+> 2. Confirm the demo Gateway bridges both (production usually uses one per location)
 > 3. Read secrets from both Vaults via Akeyless USC
 > 4a. Create a secret via Akeyless — verify it appears in Vault
 > 4b. Create a secret in Vault — verify Akeyless picks it up
@@ -142,6 +144,8 @@ Here's what we're going to cover. Seven chapters, about nine minutes of live dem
 ---
 
 > **Note:** The demo below uses the CLI for precision. In practice, the UI often demos better for live audiences — consider switching to the Akeyless Console for Chapter 3, 4, 6, and 7 if recording for a general audience.
+>
+> **Topology note:** This demo intentionally uses one Gateway for two Vault dev clusters in one private network. Production deployments usually place Vault clusters per region close to workloads and deploy one Akeyless Gateway per private location/region.
 
 ## [CHAPTER 1]: Two Vault Instances — No Shared Governance
 
@@ -180,6 +184,8 @@ Now let me switch to port 8202. This is the payments team's Vault — a complete
 
 These two clusters have nothing in common. No shared policies. No shared audit log. If a CISO asks "who accessed the payments Stripe key in the last 30 days," the answer comes from this cluster's logs only — and only if Vault Enterprise is configured to ship them somewhere. The backend team's activity is completely invisible from here, and vice versa. This is the governance gap we're going to close.
 
+And in production, this pattern is usually regional. Teams keep Vault close to applications for latency. Vault Enterprise teams may use DR or Performance Replication between regions, but many organizations still run isolated clusters with no replication — which is exactly where Akeyless multi-vault governance helps.
+
 ---
 
 ## [CHAPTER 2]: Gateway on Kubernetes
@@ -202,7 +208,7 @@ Now let's look at what's running on the Kubernetes side. I'll query the `akeyles
 
 You can see the Akeyless Gateway pod is running. This is the component that lives inside your infrastructure — it's the bridge between the Akeyless control plane in the cloud and your internal resources. In a real deployment this would be sitting inside your private network, with network access to your Vault instance but no inbound internet exposure required.
 
-The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8202 — and a Universal Secret Connector on top of each. One Gateway, two clusters. That's the setup that lets the next steps work. Let's go use it.
+The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8202 — and a Universal Secret Connector on top of each. One Gateway, two clusters for demo simplicity. In production you'd normally have one Gateway in each private location where Vault runs. That's the setup that lets the next steps work. Let's go use it.
 
 ---
 
