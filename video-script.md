@@ -15,12 +15,12 @@
 5. [SLIDE 5] Demo Agenda (~0:20)
 6. [CHAPTER 1] Verify Vault Dev Secrets (~1:00)
 7. [CHAPTER 2] Gateway on Kubernetes (~0:45)
-8. [CHAPTER 3] USC List and Get (~1:15)
-9. [CHAPTER 4a] Akeyless USC Create → Vault Verify (~1:15)
-10. [CHAPTER 4b] Vault Create → Akeyless Verify (~1:00)
-11. [CHAPTER 5] HashiCorp Vault Proxy (~1:30)
-12. [CHAPTER 6] RBAC — Access Denied (~1:15)
-13. [CHAPTER 7] Audit Trail (~1:00)
+8. [CHAPTER 3] Discover Secrets via USC (~0:45)
+9. [CHAPTER 4] Read Secrets via USC (~1:00)
+10. [CHAPTER 5] Bi-Directional Secret Sync (~2:15)
+11. [CHAPTER 6] HashiCorp Vault Proxy (~1:30)
+12. [CHAPTER 7] RBAC — Access Denied (~1:15)
+13. [CHAPTER 8] Audit Trail (~1:00)
 14. [CLOSING SLIDE] Wrap Up (~0:30)
 
 ---
@@ -130,16 +130,16 @@ In both cases, every operation hits the same Akeyless control plane and produces
 >
 > 1. Show two isolated Vault instances — no shared governance
 > 2. Confirm the demo Gateway bridges both (production usually uses one per location)
-> 3. Read secrets from both Vaults via Akeyless USC
-> 4a. Create a secret via Akeyless — verify it appears in Vault
-> 4b. Create a secret in Vault — verify Akeyless picks it up
-> 5. Use the `vault` CLI unchanged via HashiCorp Vault Proxy
-> 6. One RBAC policy denies access across both Vault clusters
-> 7. One audit trail covers both Vault clusters
+> 3. Discover secrets across both Vault instances
+> 4. Read secrets from both Vaults via Akeyless USC
+> 5. Create secrets via Akeyless or Vault and keep them synchronized
+> 6. Use the `vault` CLI unchanged via HashiCorp Vault Proxy
+> 7. One RBAC policy denies access across both Vault clusters
+> 8. One audit trail covers both Vault clusters
 
 **Narration:**
 
-Here's what we're going to cover. Seven chapters, about nine minutes of live demo. Two separate Vault clusters, one governance layer. Let's get into it.
+Here's what we're going to cover. Eight chapters, about ten minutes of live demo. Two separate Vault clusters, one governance layer. Let's get into it.
 
 ---
 
@@ -212,9 +212,9 @@ The Gateway has been pre-configured with two Vault Targets — one pointing at t
 
 ---
 
-## [CHAPTER 3]: Both Vaults from One Control Plane
+## [CHAPTER 3]: Discover Secrets Across Both Vaults
 
-**Duration:** ~1:30
+**Duration:** ~0:45
 
 **On screen:**
 
@@ -224,13 +224,39 @@ Terminal showing:
 # Backend team's Vault via USC
 akeyless usc list --usc-name demo-vault-usc-backend
 
+# Payments team's Vault via USC
+akeyless usc list --usc-name demo-vault-usc-payments
+```
+
+Output showing both secret inventories.
+
+**Narration:**
+
+This is the key moment. I'm now using the Akeyless CLI, and I'm going to discover what already exists in both Vault clusters from the same session.
+
+`akeyless usc list` on `demo-vault-usc-backend` — there are the backend team's secrets. Same paths we saw directly in Vault.
+
+Now — same CLI, same session — let me switch to the payments connector. `akeyless usc list` on `demo-vault-usc-payments` — payments secrets.
+
+Two separate Vault clusters. One Akeyless CLI session. Same RBAC policies govern both. Same audit trail captures both. And I didn't migrate or sync anything first. Akeyless can discover what's already in each Vault the moment the connectors are in place.
+
+---
+
+## [CHAPTER 4]: Read Secrets via USC
+
+**Duration:** ~1:00
+
+**On screen:**
+
+Terminal showing:
+
+```bash
+# Backend team's Vault via USC
 akeyless usc get \
   --usc-name demo-vault-usc-backend \
   --secret-id myapp/db-password
 
 # Payments team's Vault via USC
-akeyless usc list --usc-name demo-vault-usc-payments
-
 akeyless usc get \
   --usc-name demo-vault-usc-payments \
   --secret-id payments/stripe-key
@@ -240,17 +266,17 @@ Output showing the same secret values we saw in each Vault directly.
 
 **Narration:**
 
-This is the key moment. I'm now using the Akeyless CLI, and I'm going to access secrets from both Vault clusters in the same session.
+Now let me read a secret from each cluster through the Akeyless control plane.
 
-`akeyless usc list` on `demo-vault-usc-backend` — there are the backend team's secrets. Same paths we saw in Vault. Let me pull the database credential. And there it is — same password, physically stored in backend Vault, read through the Akeyless control plane.
+`akeyless usc get` on the backend connector for `myapp/db-password` — same password, physically stored in backend Vault, read through Akeyless.
 
-Now — same CLI, same session — let me switch to the payments connector. `akeyless usc list` on `demo-vault-usc-payments` — payments secrets. Let me get the Stripe key.
+Now the payments connector. `akeyless usc get` for `payments/stripe-key` — same result. Different Vault cluster, same control plane, same policy model.
 
-Two separate Vault clusters. One Akeyless CLI session. Same RBAC policies govern both. Same audit trail captures both. Neither secret left its respective Vault — Akeyless reads directly from each one. You don't move anything; you just add governance.
+Neither secret left its respective Vault. Akeyless reads directly from each one in place. You don't move anything; you just add governance.
 
 ---
 
-## [CHAPTER 4a]: Akeyless USC Create → Vault Verify (Backend)
+## [CHAPTER 5a]: Akeyless USC Create → Vault Verify (Backend)
 
 **Duration:** ~1:15
 
@@ -288,7 +314,7 @@ The USC writes directly to Vault KV via the Gateway — not a copy, not a sync. 
 
 ---
 
-## [CHAPTER 4b]: Vault Create → Akeyless Verify (Payments)
+## [CHAPTER 5b]: Vault Create → Akeyless Verify (Payments)
 
 **Duration:** ~1:00
 
@@ -323,7 +349,7 @@ No sync job. No import step. No polling delay. Akeyless reads directly from the 
 
 ---
 
-## [CHAPTER 5]: HashiCorp Vault Proxy
+## [CHAPTER 6]: HashiCorp Vault Proxy
 
 **Duration:** ~1:30
 
@@ -364,7 +390,7 @@ That is what zero-disruption migration looks like in practice.
 
 ---
 
-## [CHAPTER 6]: RBAC — One Policy, Both Clusters Denied
+## [CHAPTER 7]: RBAC — One Policy, Both Clusters Denied
 
 **Duration:** ~1:30
 
@@ -411,7 +437,7 @@ This is what centralized governance means at scale. When you need to revoke a te
 
 ---
 
-## [CHAPTER 7]: Audit Trail
+## [CHAPTER 8]: Audit Trail
 
 **Duration:** ~1:00
 
@@ -421,16 +447,16 @@ Browser showing the Akeyless console Logs page, with a filtered view showing log
 
 - USC list operations (backend connector, then payments connector)
 - USC get operations from both connectors
-- USC create (backend, Chapter 4a)
-- Native Vault write picked up by payments USC (Chapter 4b)
-- HVP vault kv list and get operations (Chapter 5)
-- Two denied USC get attempts from Chapter 6 — both with status "Denied"
+- USC create (backend, Chapter 5a)
+- Native Vault write picked up by payments USC (Chapter 5b)
+- HVP vault kv list and get operations (Chapter 6)
+- Two denied USC get attempts from Chapter 7 — both with status "Denied"
 
 **Narration:**
 
 Last stop — the audit trail. One log for both clusters.
 
-Here's everything from this session. The USC reads from the backend connector in Chapter 3. The USC reads from the payments connector — same log, different cluster. The create through the backend connector in 4a. The write we made natively in the payments Vault, picked up via USC in 4b. The HVP vault CLI calls from Chapter 5 — attributed to the Akeyless identity, not a generic token. And down here, both denial attempts from Chapter 6 — one for the backend cluster, one for payments, both status "Denied."
+Here's everything from this session. The USC discovery calls from Chapter 3. The USC reads from both connectors in Chapter 4. The create through the backend connector in 5a. The write we made natively in the payments Vault, picked up via USC in 5b. The HVP vault CLI calls from Chapter 6 — attributed to the Akeyless identity, not a generic token. And down here, both denial attempts from Chapter 7 — one for the backend cluster, one for payments, both status "Denied."
 
 Two Vault clusters. One log. Every operation — regardless of which tool triggered it, regardless of which cluster held the secret — is in this single view. Forwardable to your SIEM. Filterable by identity, by action, by path, by cluster. This is what a CISO actually needs.
 

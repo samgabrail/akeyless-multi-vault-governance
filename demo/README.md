@@ -16,14 +16,14 @@ The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue u
 
 | Chapter | What It Proves |
 |---|---|
-| **1 — Two Vault baselines** | Two separate Vault instances, each with real secrets, no shared governance |
-| **2 — Gateway health check** | Demo shows one Akeyless Gateway bridging both Vault instances (production is typically one Gateway per private location) |
-| **3 — Both Vaults from one control plane** | USC lists and reads secrets from both clusters — same CLI, same policies, same audit trail |
-| **4a — Two-way sync (Akeyless → Vault)** | Write a secret via Akeyless USC; it lands natively in backend Vault |
-| **4b — Two-way sync (Vault → Akeyless)** | Write natively in payments Vault; Akeyless sees it immediately with no sync job |
-| **5 — HVP (zero code changes)** | One `VAULT_ADDR` change routes existing `vault` CLI commands through Akeyless |
-| **6 — RBAC denial (both clusters)** | One Akeyless policy denies access to secrets across both Vault clusters |
-| **7 — Unified audit trail** | All operations from both clusters appear in one audit log |
+| **1 — Two isolated Vault instances** | Confirm the two Vault clusters start with no shared governance |
+| **2 — Gateway bridges both** | Demo shows one Akeyless Gateway connecting both Vault instances |
+| **3 — Discover secrets** | USC inventories secrets across both Vault clusters from one Akeyless session |
+| **4 — Read secrets via USC** | USC reads secrets from both clusters through the Akeyless control plane |
+| **5 — Bi-directional secret sync** | The demo shows both Akeyless → Vault and Vault → Akeyless flows |
+| **6 — vault CLI via HVP** | One `VAULT_ADDR` change routes existing `vault` CLI commands through Akeyless |
+| **7 — One RBAC policy, two clusters** | One Akeyless policy denies access across both Vault clusters |
+| **8 — One unified audit trail** | All operations from both clusters appear in one audit log |
 
 ---
 
@@ -173,9 +173,9 @@ What this creates:
 | Read-only role | `demo-readonly-role` | `read` + `list` on paths under both USCs |
 | Read-only auth | `demo-readonly-auth` | API key identity for read-only role |
 | Denied role | `demo-denied-role` | `deny` on paths under both USCs |
-| Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 6) |
+| Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 7) |
 
-Retrieve the Access ID and Key for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) before running Chapter 6.
+Retrieve the Access ID and Key for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) before running Chapter 7.
 
 ---
 
@@ -218,23 +218,32 @@ In this demo, one Gateway pod bridges both Vault instances to the Akeyless contr
 
 ---
 
-### Chapter 3: Both Vaults from One Control Plane
+### Chapter 3: Discover Secrets Across Both Vaults
 
 ```bash
 # Backend Vault via USC
 akeyless usc list --usc-name demo-vault-usc-backend
-akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-password"
 
 # Payments Vault via USC
 akeyless usc list --usc-name demo-vault-usc-payments
-akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
 ```
 
-> Both Vault clusters are visible from the same Akeyless CLI session. Same RBAC model governs both. Same audit trail captures both. Secrets have not moved — each USC reads directly from its respective Vault instance in real time.
+> Both Vault clusters are visible from the same Akeyless CLI session. Same RBAC model governs both. Same audit trail captures both. Secrets have not moved — each USC inventories its respective Vault instance in real time.
 
 ---
 
-### Chapter 4a: Two-Way Sync — Akeyless to Vault (Backend)
+### Chapter 4: Read Secrets via USC
+
+```bash
+akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-password"
+akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
+```
+
+This is the proof that Akeyless is reading live secrets from both Vault clusters through the control plane, without moving them into Akeyless storage.
+
+---
+
+### Chapter 5a: Two-Way Sync — Akeyless to Vault (Backend)
 
 ```bash
 akeyless usc create \
@@ -250,7 +259,7 @@ The Akeyless write went through the Gateway directly into backend Vault's KV eng
 
 ---
 
-### Chapter 4b: Two-Way Sync — Vault to Akeyless (Payments)
+### Chapter 5b: Two-Way Sync — Vault to Akeyless (Payments)
 
 ```bash
 export VAULT_ADDR='http://127.0.0.1:8202'
@@ -264,7 +273,7 @@ No sync job. No import step. The USC reads directly from Vault, so anything writ
 
 ---
 
-### Chapter 5: vault CLI via HVP (Zero Code Changes)
+### Chapter 6: vault CLI via HVP (Zero Code Changes)
 
 **One-time setup — seed secrets into Akeyless KV via HVP:**
 
@@ -306,7 +315,7 @@ export VAULT_ADDR='http://127.0.0.1:8200'
 
 ---
 
-### Chapter 6: RBAC — One Policy Denies Both Clusters
+### Chapter 7: RBAC — One Policy Denies Both Clusters
 
 ```bash
 akeyless auth \
@@ -332,7 +341,7 @@ akeyless auth --access-id p-xxxxxxxxxxxx --access-key <your-access-key>
 
 ---
 
-### Chapter 7: Unified Audit Trail — Both Clusters, One Log
+### Chapter 8: Unified Audit Trail — Both Clusters, One Log
 
 1. Open [https://console.akeyless.io](https://console.akeyless.io)
 2. Navigate to **Logs**

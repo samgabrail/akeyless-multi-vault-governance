@@ -50,25 +50,36 @@ kubectl get svc -n akeyless
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 3: Read secrets from BOTH Vaults via Akeyless USC
+# CHAPTER 3: Discover secrets across BOTH Vaults via Akeyless USC
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 3: Both Vaults governed from one Akeyless control plane ---"
+echo "--- Chapter 3: Discover secrets across both Vault clusters ---"
 
-# Backend team's Vault — via USC
+# Backend team's Vault — inventory via USC
 akeyless usc list \
   --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
+# Payments team's Vault — inventory via USC
+akeyless usc list \
+  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+# Key point: same CLI session can discover both Vault inventories with one
+# governance layer on top.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAPTER 4: Read secrets from BOTH Vaults via Akeyless USC
+# ─────────────────────────────────────────────────────────────────────────────
+echo "--- Chapter 4: Read secrets from both Vault clusters via USC ---"
+
+# Backend team's Vault — read via USC
 akeyless usc get \
   --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
   --secret-id "secret/myapp/db-password" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
-# Payments team's Vault — via USC
-akeyless usc list \
-  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
-  --profile "${AKEYLESS_PROFILE:-demo}"
-
+# Payments team's Vault — read via USC
 akeyless usc get \
   --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
   --secret-id "secret/payments/stripe-key" \
@@ -78,9 +89,9 @@ akeyless usc get \
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 4a: Two-way sync — Akeyless → Vault (backend)
+# CHAPTER 5a: Two-way sync — Akeyless → Vault (backend)
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 4a: Create via Akeyless USC → appears in backend Vault ---"
+echo "--- Chapter 5a: Create via Akeyless USC → appears in backend Vault ---"
 
 # Write a new secret through Akeyless — it physically lands in backend Vault
 # Value must be base64-encoded JSON matching Vault KV format: {"key": "value"}
@@ -98,9 +109,9 @@ vault kv get secret/myapp/created-from-akeyless
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 4b: Two-way sync — Vault → Akeyless (payments)
+# CHAPTER 5b: Two-way sync — Vault → Akeyless (payments)
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 4b: Create in payments Vault → visible via Akeyless USC ---"
+echo "--- Chapter 5b: Create in payments Vault → visible via Akeyless USC ---"
 
 # Write directly into the payments Vault
 export VAULT_ADDR="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
@@ -121,9 +132,9 @@ export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 5: HVP — vault CLI with zero code changes
+# CHAPTER 6: HVP — vault CLI with zero code changes
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 5: vault CLI via Akeyless HVP — zero code changes ---"
+echo "--- Chapter 6: vault CLI via Akeyless HVP — zero code changes ---"
 
 # PRE-REQUISITE (one-time, run before the demo):
 #
@@ -153,9 +164,9 @@ export VAULT_ADDR="$ORIGINAL_VAULT_ADDR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 6: RBAC — single policy denies access to BOTH Vaults
+# CHAPTER 7: RBAC — single policy denies access to BOTH Vaults
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 6: One RBAC deny blocks access across both Vault clusters ---"
+echo "--- Chapter 7: One RBAC deny blocks access across both Vault clusters ---"
 
 # Get a token for the denied identity (replace with actual values from akeyless-setup.sh output)
 DENIED_TOKEN=$(akeyless auth \
@@ -182,9 +193,9 @@ akeyless usc get \
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 7: Centralized audit trail — both Vaults, one log
+# CHAPTER 8: Centralized audit trail — both Vaults, one log
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 7: One audit trail covers both Vault clusters ---"
+echo "--- Chapter 8: One audit trail covers both Vault clusters ---"
 
 # Every operation from this demo — USC reads from both clusters, writes, HVP
 # calls, and both RBAC denials — is in a single Akeyless audit log.
