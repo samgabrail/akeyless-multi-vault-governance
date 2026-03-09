@@ -39,3 +39,4 @@ terraform.rc
 # Local demo artifacts
 demo/.akeyless-demo.env
 firebase-debug.log
+excalidraw.log
