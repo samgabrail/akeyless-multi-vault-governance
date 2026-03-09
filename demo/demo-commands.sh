@@ -12,8 +12,13 @@
 # export VAULT_TOKEN='root'
 # export USC_BACKEND='demo-vault-usc-backend'
 # export USC_PAYMENTS='demo-vault-usc-payments'
+# export USC_AWS='demo-aws-usc'
+# export USC_K8S='demo-k8s-usc'
 # export AKEYLESS_GW='https://192.168.1.82:8000'    # your Gateway URL
 # export AKEYLESS_PROFILE='demo'                     # akeyless CLI profile name
+# export AWS_DEMO_SECRET_NAME='demo/mvg/aws/payments-api-key'
+# export K8S_DEMO_SECRET_NAME='payments-config'
+# export K8S_NAMESPACE='mvg-demo'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -164,9 +169,35 @@ export VAULT_ADDR="$ORIGINAL_VAULT_ADDR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 7: RBAC — single policy denies access to BOTH Vaults
+# CHAPTER 7: Extend MVG to AWS Secrets Manager and Kubernetes Secrets
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 7: One RBAC deny blocks access across both Vault clusters ---"
+echo "--- Chapter 7: Extend MVG to AWS and Kubernetes secrets ---"
+
+# AWS Secrets Manager via USC-backed MVG
+akeyless usc list \
+  --usc-name "${USC_AWS:-demo-aws-usc}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+akeyless usc get \
+  --usc-name "${USC_AWS:-demo-aws-usc}" \
+  --secret-id "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+# Kubernetes Secrets via USC-backed MVG
+akeyless usc list \
+  --usc-name "${USC_K8S:-demo-k8s-usc}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+akeyless usc get \
+  --usc-name "${USC_K8S:-demo-k8s-usc}" \
+  --secret-id "${K8S_DEMO_SECRET_NAME:-payments-config}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAPTER 8: RBAC — single policy denies access across all governed backends
+# ─────────────────────────────────────────────────────────────────────────────
+echo "--- Chapter 8: One RBAC deny blocks access across Vault, AWS, and Kubernetes ---"
 
 # Get a token for the denied identity (replace with actual values from akeyless-setup.sh output)
 DENIED_TOKEN=$(akeyless auth \
@@ -191,14 +222,30 @@ akeyless usc get \
   --token "$DENIED_TOKEN"
 # Expected: 403 Forbidden / no read permission
 
+# Attempt access to AWS Secrets Manager path — also denied
+akeyless usc get \
+  --usc-name "${USC_AWS:-demo-aws-usc}" \
+  --secret-id "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --token "$DENIED_TOKEN"
+# Expected: 403 Forbidden / no read permission
+
+# Attempt access to Kubernetes secret — also denied
+akeyless usc get \
+  --usc-name "${USC_K8S:-demo-k8s-usc}" \
+  --secret-id "${K8S_DEMO_SECRET_NAME:-payments-config}" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --token "$DENIED_TOKEN"
+# Expected: 403 Forbidden / no read permission
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 8: Centralized audit trail — both Vaults, one log
+# CHAPTER 9: Centralized audit trail — every backend, one log
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 8: One audit trail covers both Vault clusters ---"
+echo "--- Chapter 9: One audit trail covers Vault, AWS, and Kubernetes ---"
 
-# Every operation from this demo — USC reads from both clusters, writes, HVP
-# calls, and both RBAC denials — is in a single Akeyless audit log.
+# Every operation from this demo — Vault MVG reads/writes, HVP calls, AWS and
+# Kubernetes reads, and all RBAC denials — is in a single Akeyless audit log.
 echo "Open: https://console.akeyless.io"
 echo "Navigate: Logs → filter by your Access ID or by action (get, list, create)"
-echo "Both USC connectors (backend + payments) appear in the same log."
+echo "Vault, AWS, and Kubernetes USC connectors appear in the same log."

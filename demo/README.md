@@ -1,14 +1,16 @@
-# Demo: HashiCorp Vault + Akeyless Governance
+# Demo: Akeyless Multi Vault Governance
 
 ## Overview
 
-This demo shows Akeyless acting as a centralized governance layer over **two independent HashiCorp Vault instances** — with no migration required. The two Vault instances represent separate teams in an enterprise: a backend team and a payments team, each running their own Vault cluster with their own secrets.
+This demo shows Akeyless acting as a centralized governance layer across **two independent HashiCorp Vault instances**, **AWS Secrets Manager**, and **Kubernetes Secrets** — with no migration required. The two Vault instances represent separate teams in an enterprise: a backend team and a payments team, each running their own Vault cluster with their own secrets. AWS Secrets Manager and Kubernetes Secrets are included to show how the same MVG layer extends beyond Vault into the cloud-native and platform-native systems many enterprises already run alongside it.
 
-Neither Vault instance knows the other exists. There is no shared policy, no shared audit log, and no cross-team visibility — until Akeyless is connected. Once connected, a single Akeyless control plane governs both: one RBAC model, one audit trail, zero secrets moved.
+Neither Vault instance knows the other exists. There is no shared policy, no shared audit log, and no cross-team visibility — until Akeyless is connected. The same fragmentation often exists across cloud secrets managers and Kubernetes Secrets. Once connected, a single Akeyless control plane governs all of them: one RBAC model, one audit trail, zero secrets moved.
 
-The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue using the `vault` CLI unchanged while Akeyless handles authentication, authorization, and audit logging behind the scenes.
+The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue using the `vault` CLI unchanged while Akeyless handles authentication, authorization, and audit logging behind the scenes. This keeps Vault as the primary story while proving that MVG extends beyond Vault into cloud and Kubernetes environments.
 
-> **Production topology clarification:** This repo uses one Akeyless Gateway for both Vault instances only to keep the demo small. In production, teams usually place Vault clusters per region and close to workloads for latency, and deploy one Akeyless Gateway per private location/region (for example, us-east Vault with a us-east Gateway, us-central Vault with a us-central Gateway). Vault Enterprise teams may use DR or Performance Replication, but many organizations run isolated Vault clusters with no replication. USC plus Akeyless multi-vault governance is designed for exactly that isolated-cluster model.
+> **Terminology note:** In this repo, narrative copy uses **MVG** for multi-vault governance. In the current product, CLI, and docs, this capability is still surfaced as **USC**.
+>
+> **Production topology clarification:** This repo uses one Akeyless Gateway for both Vault instances, AWS, and Kubernetes only to keep the demo small. In production, teams usually place Vault clusters per region and close to workloads for latency, and deploy one Akeyless Gateway per private location/region. Vault Enterprise teams may use DR or Performance Replication, but many organizations still run isolated Vault clusters with no replication because of ownership boundaries, cost, or operational complexity. MVG is designed for exactly that isolated-cluster model, and it extends the same governance approach to cloud secrets managers and Kubernetes.
 
 ---
 
@@ -22,8 +24,9 @@ The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue u
 | **4 — Read secrets via USC** | USC reads secrets from both clusters through the Akeyless control plane |
 | **5 — Bi-directional secret sync** | The demo shows both Akeyless → Vault and Vault → Akeyless flows |
 | **6 — vault CLI via HVP** | One `VAULT_ADDR` change routes existing `vault` CLI commands through Akeyless |
-| **7 — One RBAC policy, two clusters** | One Akeyless policy denies access across both Vault clusters |
-| **8 — One unified audit trail** | All operations from both clusters appear in one audit log |
+| **7 — Extend MVG to AWS and Kubernetes** | The same MVG layer discovers and reads secrets from AWS Secrets Manager and Kubernetes |
+| **8 — One RBAC policy, many backends** | One Akeyless policy denies access across Vault, AWS, and Kubernetes |
+| **9 — One unified audit trail** | All operations from all governed backends appear in one audit log |
 
 ---
 
@@ -35,6 +38,7 @@ The demo also shows the HashiCorp Vault Proxy (HVP), which lets teams continue u
 |---|---|
 | `vault` CLI | Any recent version of the HashiCorp Vault CLI |
 | `akeyless` CLI | [Install instructions](https://docs.akeyless.io/docs/cli) |
+| `aws` CLI | Needed for the AWS Secrets Manager extension |
 | `kubectl` | For inspecting Gateway pods and services |
 | `helm` | For deploying the Akeyless Gateway chart |
 
@@ -63,8 +67,17 @@ akeyless auth \
 | `VAULT_ADDR_PAYMENTS` | `http://127.0.0.1:8202` | Address of payments team's Vault |
 | `VAULT_TOKEN` | `root` | Root token (same for both dev instances) |
 | `AKEYLESS_GATEWAY_URL` | _(required)_ | External URL of your deployed Gateway |
+| `ENABLE_AWS_DEMO` | `false` | Whether to create the AWS target + USC |
+| `ENABLE_K8S_DEMO` | `false` | Whether to create the Kubernetes target + USC |
+| `AWS_REGION` | `us-east-2` | Region for AWS Secrets Manager |
+| `AWS_USC_PREFIX` | `demo/mvg/aws/` | Prefix filtered by the AWS USC |
+| `AWS_DEMO_SECRET_NAME` | `demo/mvg/aws/payments-api-key` | AWS secret used in the demo |
+| `K8S_NAMESPACE` | `mvg-demo` | Namespace used for the Kubernetes demo |
+| `K8S_DEMO_SECRET_NAME` | `payments-config` | Kubernetes Secret object used in the demo |
 | `USC_BACKEND` | `demo-vault-usc-backend` | USC name for backend Vault |
 | `USC_PAYMENTS` | `demo-vault-usc-payments` | USC name for payments Vault |
+| `USC_AWS` | `demo-aws-usc` | USC name for AWS Secrets Manager |
+| `USC_K8S` | `demo-k8s-usc` | USC name for Kubernetes Secrets |
 
 Quick-copy block:
 
@@ -73,8 +86,17 @@ export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
 export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8202'
 export VAULT_TOKEN='root'
 export AKEYLESS_GATEWAY_URL='https://<your-gateway-external-ip>:8000'
+export ENABLE_AWS_DEMO='true'
+export ENABLE_K8S_DEMO='true'
+export AWS_REGION='us-east-2'
+export AWS_USC_PREFIX='demo/mvg/aws/'
+export AWS_DEMO_SECRET_NAME='demo/mvg/aws/payments-api-key'
+export K8S_NAMESPACE='mvg-demo'
+export K8S_DEMO_SECRET_NAME='payments-config'
 export USC_BACKEND='demo-vault-usc-backend'
 export USC_PAYMENTS='demo-vault-usc-payments'
+export USC_AWS='demo-aws-usc'
+export USC_K8S='demo-k8s-usc'
 ```
 
 > **Gateway networking note:** `VAULT_ADDR_BACKEND` and `VAULT_ADDR_PAYMENTS` are the addresses your Akeyless Gateway uses to reach the Vault instances. If your Gateway runs on Kubernetes and Vault runs on your local machine, use your host machine's network IP (e.g., `http://192.168.1.100:8200`) rather than `127.0.0.1`. On Docker Desktop, `http://host.docker.internal:8200` works.
@@ -101,6 +123,31 @@ What this does:
 - Exports `VAULT_PID_BACKEND` and `VAULT_PID_PAYMENTS` into your shell
 
 **Keep this terminal open.** Both Vault processes must remain running throughout the demo.
+
+---
+
+## Step 1b: Seed AWS and Kubernetes Demo Resources
+
+This step is what expands the webinar from a Vault-only story into a true MVG story.
+
+```bash
+./demo/setup-cloud-and-k8s-demo.sh
+```
+
+What this does:
+
+- Creates or updates the AWS Secrets Manager secret used in the demo
+- Creates the Kubernetes namespace and secret used in the demo
+- Creates a Kubernetes service account with read/list access to secrets in that namespace
+- Prints the `export` commands needed for `demo/akeyless-setup.sh`
+
+After this step, copy the printed `export ...` lines into your shell. If your AWS credentials are not already present in the environment, also export:
+
+```bash
+export AWS_ACCESS_KEY_ID='<your-access-key-id>'
+export AWS_SECRET_ACCESS_KEY='<your-secret-access-key>'
+export AWS_SESSION_TOKEN='<your-session-token>'   # only if using STS creds
+```
 
 ---
 
@@ -168,14 +215,18 @@ What this creates:
 |---|---|---|
 | Vault Target | `demo-vault-target-backend` | Connection to backend Vault (port 8200) |
 | Vault Target | `demo-vault-target-payments` | Connection to payments Vault (port 8202) |
+| AWS Target | `demo-aws-target` | Connection to AWS Secrets Manager |
+| Kubernetes Target | `demo-k8s-target` | Connection to the Kubernetes cluster |
 | USC | `demo-vault-usc-backend` | Akeyless window into backend Vault |
 | USC | `demo-vault-usc-payments` | Akeyless window into payments Vault |
-| Read-only role | `demo-readonly-role` | `read` + `list` on paths under both USCs |
+| USC | `demo-aws-usc` | Akeyless window into AWS Secrets Manager |
+| USC | `demo-k8s-usc` | Akeyless window into Kubernetes Secrets |
+| Read-only role | `demo-readonly-role` | `read` + `list` on paths under all configured USCs |
 | Read-only auth | `demo-readonly-auth` | API key identity for read-only role |
-| Denied role | `demo-denied-role` | `deny` on paths under both USCs |
-| Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 7) |
+| Denied role | `demo-denied-role` | `deny` on paths under all configured USCs |
+| Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 8) |
 
-Retrieve the Access ID and Key for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) before running Chapter 7.
+Retrieve the Access ID and Key for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) before running Chapter 8.
 
 ---
 
@@ -315,7 +366,21 @@ export VAULT_ADDR='http://127.0.0.1:8200'
 
 ---
 
-### Chapter 7: RBAC — One Policy Denies Both Clusters
+### Chapter 7: Extend MVG to AWS and Kubernetes
+
+```bash
+akeyless usc list --usc-name demo-aws-usc
+akeyless usc get --usc-name demo-aws-usc --secret-id "demo/mvg/aws/payments-api-key"
+
+akeyless usc list --usc-name demo-k8s-usc
+akeyless usc get --usc-name demo-k8s-usc --secret-id "payments-config"
+```
+
+This is the “true MVG” proof point. The same Akeyless control plane that is governing the two Vault clusters is also governing AWS Secrets Manager and Kubernetes Secrets in the same session.
+
+---
+
+### Chapter 8: RBAC — One Policy Denies Vault, AWS, and Kubernetes
 
 ```bash
 akeyless auth \
@@ -329,9 +394,17 @@ akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-passwor
 # Attempt payments Vault — also denied (same policy, different cluster)
 akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
 # Expected: Unauthorized
+
+# Attempt AWS secret — also denied
+akeyless usc get --usc-name demo-aws-usc --secret-id "demo/mvg/aws/payments-api-key"
+# Expected: Unauthorized
+
+# Attempt Kubernetes secret — also denied
+akeyless usc get --usc-name demo-k8s-usc --secret-id "payments-config"
+# Expected: Unauthorized
 ```
 
-> One Akeyless role with a `deny` capability on both USC paths blocks access to both Vault clusters simultaneously. No per-cluster ACL update required.
+> One Akeyless role with a `deny` capability on every configured USC path blocks access across Vault, AWS, and Kubernetes simultaneously. No per-backend ACL update required.
 
 Re-authenticate as admin:
 
@@ -341,13 +414,13 @@ akeyless auth --access-id p-xxxxxxxxxxxx --access-key <your-access-key>
 
 ---
 
-### Chapter 8: Unified Audit Trail — Both Clusters, One Log
+### Chapter 9: Unified Audit Trail — Vault, AWS, Kubernetes, One Log
 
 1. Open [https://console.akeyless.io](https://console.akeyless.io)
 2. Navigate to **Logs**
 3. Filter by your Access ID or action type
 
-Every operation from the session is here: USC reads and writes against both clusters, HVP calls, and both RBAC denials — attributed, timestamped, in one place.
+Every operation from the session is here: Vault MVG reads and writes, HVP calls, AWS and Kubernetes reads, and all RBAC denials — attributed, timestamped, in one place.
 
 ```bash
 akeyless get-audit-event-log --limit 30
@@ -372,6 +445,10 @@ akeyless delete-role --name demo-denied-role --profile demo
 akeyless delete-role --name demo-readonly-role --profile demo
 akeyless delete-item --item-name /demo-vault-usc-payments --profile demo
 akeyless delete-item --item-name /demo-vault-usc-backend --profile demo
+akeyless delete-item --item-name /demo-aws-usc --profile demo || true
+akeyless delete-item --item-name /demo-k8s-usc --profile demo || true
+akeyless target delete --name demo-aws-target --profile demo || true
+akeyless target delete --name demo-k8s-target --profile demo || true
 akeyless target delete --name demo-vault-target-payments --profile demo
 akeyless target delete --name demo-vault-target-backend --profile demo
 ```
@@ -387,4 +464,15 @@ kubectl delete namespace akeyless
 
 ```bash
 rm ~/.vault-token
+```
+
+### Remove AWS and Kubernetes demo data
+
+```bash
+aws secretsmanager delete-secret \
+  --region "${AWS_REGION:-us-east-2}" \
+  --secret-id "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+  --force-delete-without-recovery
+
+kubectl delete namespace "${K8S_NAMESPACE:-mvg-demo}"
 ```

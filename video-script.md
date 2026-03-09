@@ -1,6 +1,6 @@
-# HashiCorp Vault + Akeyless: Governance Without Rip-and-Replace
+# Akeyless Multi Vault Governance: Centralized Governance Across HashiCorp Vault and Cloud Secrets Managers
 
-**Total Runtime:** ~12 minutes
+**Total Runtime:** ~14 minutes
 **Format:** Screencast with slide intro
 **Video Type:** Technical demo — no camera, narrator voiceover
 
@@ -19,9 +19,10 @@
 9. [CHAPTER 4] Read Secrets via USC (~1:00)
 10. [CHAPTER 5] Bi-Directional Secret Sync (~2:15)
 11. [CHAPTER 6] HashiCorp Vault Proxy (~1:30)
-12. [CHAPTER 7] RBAC — Access Denied (~1:15)
-13. [CHAPTER 8] Audit Trail (~1:00)
-14. [CLOSING SLIDE] Wrap Up (~0:30)
+12. [CHAPTER 7] Extend MVG to AWS and Kubernetes (~1:15)
+13. [CHAPTER 8] RBAC — Access Denied (~1:15)
+14. [CHAPTER 9] Audit Trail (~1:00)
+15. [CLOSING SLIDE] Wrap Up (~0:30)
 
 ---
 
@@ -31,13 +32,15 @@
 
 **On screen:**
 
-> **HashiCorp Vault + Akeyless: Governance Without Rip-and-Replace**
+> **Akeyless Multi Vault Governance**
+>
+> Centralized Governance Across HashiCorp Vault and Cloud Secrets Managers
 >
 > [Akeyless logo]
 
 **Narration:**
 
-Hey, welcome. In the next twelve minutes or so we're going to look at a real problem that comes up constantly in security-conscious organizations: you've got HashiCorp Vault deployed, teams depend on it, and you need central governance — but you don't have the appetite or the budget to rip it all out and start over. I'm going to show you exactly how Akeyless solves that.
+In this webinar, we are going to look at a problem that comes up constantly in security-conscious organizations: you've got HashiCorp Vault, cloud secrets managers, and Kubernetes Secrets embedded across teams, and you need central governance without ripping any of it out. I'm going to show you exactly how Akeyless Multi Vault Governance solves that.
 
 ---
 
@@ -49,17 +52,17 @@ Hey, welcome. In the next twelve minutes or so we're going to look at a real pro
 
 > **The Governance Gap**
 >
-> - Vault is deeply embedded — teams built workflows around it
-> - Secrets are siloed: each Vault instance is its own island
+> - Vault and cloud secrets managers are deeply embedded
+> - Secrets are siloed across Vaults, cloud accounts, and clusters
 > - No central audit: CISO can't answer "who accessed what, when, from where?"
-> - No central access control: every Vault has its own policies
+> - No central access control: every backend has its own policies
 > - Ripping it out is too expensive, too risky, too disruptive
 
 **Narration:**
 
-Here's the situation that most enterprises are actually in. Vault is everywhere. It's in your CI/CD pipelines, your Kubernetes clusters, your application configs. Developers have muscle memory around it. Runbooks reference it. SRE teams have built tooling on top of it. And it works — for what it does.
+Here's the situation that most enterprises are actually in. HashiCorp Vault is everywhere. AWS Secrets Manager might be in one environment. Kubernetes Secrets might still be used by platform teams in another. Developers have muscle memory around all of it. Runbooks reference it. SRE teams have built tooling on top of it. And it all works — for what it does.
 
-The problem is at the governance layer. If I'm a CISO and I ask "who accessed the database password for the production payments service in the last 30 days," the answer involves logging into multiple Vault instances, grepping through different audit logs, and hoping nothing fell through the cracks. Access policies are managed per-Vault, so there's no consistent enforcement model across teams. Every Vault cluster is essentially its own little kingdom.
+The problem is at the governance layer. If I'm a CISO and I ask "who accessed the production payments credentials in the last 30 days," the answer involves logging into multiple Vault instances, cloud consoles, maybe a Kubernetes cluster, grepping through different audit logs, and hoping nothing fell through the cracks. Access policies are managed per backend, so there's no consistent enforcement model across teams.
 
 The obvious answer — migrate everything to a new secrets platform — sounds great until you price it out. The migration risk alone is enough to kill the project. So the governance gap stays open.
 
@@ -71,24 +74,24 @@ The obvious answer — migrate everything to a new secrets platform — sounds g
 
 **On screen:**
 
-> **Two Ways to Govern Vault — Without Replacing It**
+> **Two Integration Models for MVG**
 >
 > | Universal Secret Connector (USC) | HashiCorp Vault Proxy (HVP) |
 > |---|---|
-> | Govern secrets that live in Vault | `vault` CLI works unchanged |
-> | Akeyless control plane wraps Vault | Just change `VAULT_ADDR` |
+> | Govern Vault, cloud, and Kubernetes secrets | `vault` CLI works unchanged |
+> | Akeyless control plane wraps existing backends | Just change `VAULT_ADDR` |
 > | Teams use Akeyless CLI or Console | Akeyless becomes the backend |
 > | Akeyless RBAC + audit on every operation | Full audit trail automatically |
 
 **Narration:**
 
-Akeyless gives you two complementary ways to get there.
+Akeyless Multi Vault Governance gives you two complementary ways to get there.
 
-The first is the Universal Secret Connector — USC for short. This is how you manage secrets that physically live in your Vault instance, but govern them from the Akeyless control plane. You're applying Akeyless RBAC to those secrets, every read and write is logged in the Akeyless audit trail, and teams using the Akeyless CLI or console never need to know the underlying secret is stored in Vault.
+The first is the Universal Secret Connector — USC for short. In this webinar I'll refer to the overall capability as MVG, but today the product surface, CLI, and docs still use USC. This is how you govern secrets that physically live in Vault, AWS Secrets Manager, or Kubernetes, but manage policy, audit, and visibility from the Akeyless control plane.
 
-The second is the HashiCorp Vault Proxy, or HVP. This is for the teams where changing tooling just isn't going to happen. They use the `vault` CLI today. They're not switching. With HVP, they don't have to — they point `VAULT_ADDR` at an Akeyless endpoint and everything works exactly as before. Same commands, same output, but now every request flows through the Akeyless control plane and gets logged.
+The second is the HashiCorp Vault Proxy, or HVP. This is specifically for the teams where changing Vault tooling just isn't going to happen. They use the `vault` CLI today. They're not switching. With HVP, they don't have to — they point `VAULT_ADDR` at an Akeyless endpoint and everything works exactly as before.
 
-These two approaches are complementary. You can use both at the same time.
+These two approaches are complementary. USC gives you MVG across existing secret stores. HVP preserves native Vault workflows where the Vault API has to stay exactly as it is. You can use both at the same time.
 
 ---
 
@@ -103,18 +106,20 @@ vault CLI  ───────────────────────
                                                                       ▼
                               https://hvp.akeyless.io ─→ Akeyless Control Plane
                                                                       │
-akeyless CLI ──→ USC ──→ Akeyless Gateway ──→ Vault Target ──→ HashiCorp Vault KV
+akeyless CLI ──→ USC / MVG ──→ Akeyless Gateway ─┬─→ Vault Target ─→ Vault KV
+                                                  ├─→ AWS Target ─→ AWS Secrets Manager
+                                                  └─→ K8S Target ─→ Kubernetes Secrets
                                                                       │
                               Both paths ──→ Akeyless RBAC + Audit Log
 ```
 
 **Narration:**
 
-Here’s what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds a connection to your Vault instance through what Akeyless calls a Vault Target. The Universal Secret Connector sits on top of that target, so when you do a USC read through the Akeyless CLI, the request goes: Akeyless control plane, down to the Gateway, through the Vault Target, and into Vault itself. All governed, all logged.
+Here’s what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds connections to the backends you want to govern: in our case, two Vault targets, one AWS target, and one Kubernetes target. The current product surface for MVG is USC, so when you do a USC read through the Akeyless CLI, the request goes through the Akeyless control plane, down to the Gateway, and into whichever backend actually holds the secret.
 
-One topology clarification: this demo uses a single Gateway for both Vault clusters because everything is in one private network. In production, you typically deploy one Gateway per private location or region, close to each local Vault cluster.
+One topology clarification: this demo uses a single Gateway because everything is in one environment. In production, you typically deploy one Gateway per private location or region, close to each local Vault cluster and nearby workloads.
 
-For the vault CLI path, Akeyless exposes a public endpoint that speaks the native Vault HTTP API. Your vault client doesn't know the difference. The request hits Akeyless, gets authenticated and authorized against Akeyless policies, and Akeyless serves the secret from its own KV store — or from one of its 20+ dynamic secret producers for dynamic credentials. The vault CLI sees a Vault response; Akeyless is the backend.
+For the vault CLI path, Akeyless exposes a public endpoint that speaks the native Vault HTTP API. Your vault client doesn't know the difference. The request hits Akeyless, gets authenticated and authorized against Akeyless policies, and Akeyless serves the secret from its own KV store. The vault CLI sees a Vault response; Akeyless is the backend.
 
 In both cases, every operation hits the same Akeyless control plane and produces the same audit log entry. That's the key point.
 
@@ -134,16 +139,17 @@ In both cases, every operation hits the same Akeyless control plane and produces
 > 4. Read secrets from both Vaults via Akeyless USC
 > 5. Create secrets via Akeyless or Vault and keep them synchronized
 > 6. Use the `vault` CLI unchanged via HashiCorp Vault Proxy
-> 7. One RBAC policy denies access across both Vault clusters
-> 8. One audit trail covers both Vault clusters
+> 7. Extend MVG to AWS Secrets Manager and Kubernetes Secrets
+> 8. One RBAC policy denies access across Vault, AWS, and Kubernetes
+> 9. One audit trail covers every governed backend
 
 **Narration:**
 
-Here's what we're going to cover. Eight chapters, about ten minutes of live demo. Two separate Vault clusters, one governance layer. Let's get into it.
+Here's what we're going to cover. Nine chapters, about twelve minutes of live demo. Two separate Vault clusters remain the core story, and then we'll extend that same governance layer to AWS and Kubernetes. Let's get into it.
 
 ---
 
-> **Note:** The demo below uses the CLI for precision. In practice, the UI often demos better for live audiences — consider switching to the Akeyless Console for Chapter 3, 4, 6, and 7 if recording for a general audience.
+> **Note:** The demo below uses the CLI for precision. In practice, the UI often demos better for live audiences — consider switching to the Akeyless Console for Chapter 3, 4, 7, 8, and 9 if recording for a general audience.
 >
 > **Topology note:** This demo intentionally uses one Gateway for two Vault dev clusters in one private network. Production deployments usually place Vault clusters per region close to workloads and deploy one Akeyless Gateway per private location/region.
 
@@ -208,7 +214,7 @@ Now let's look at what's running on the Kubernetes side. I'll query the `akeyles
 
 You can see the Akeyless Gateway pod is running. This is the component that lives inside your infrastructure — it's the bridge between the Akeyless control plane in the cloud and your internal resources. In a real deployment this would be sitting inside your private network, with network access to your Vault instance but no inbound internet exposure required.
 
-The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8202 — and a Universal Secret Connector on top of each. One Gateway, two clusters for demo simplicity. In production you'd normally have one Gateway in each private location where Vault runs. That's the setup that lets the next steps work. Let's go use it.
+The Gateway has been pre-configured with two Vault Targets — one pointing at the backend Vault on port 8200, one pointing at the payments Vault on port 8202 — plus an AWS target and a Kubernetes target for the extension chapters. One Gateway, multiple backends for demo simplicity. In production you'd normally have one Gateway in each private location where Vault runs. That's the setup that lets the next steps work. Let's go use it.
 
 ---
 
@@ -390,7 +396,39 @@ That is what zero-disruption migration looks like in practice.
 
 ---
 
-## [CHAPTER 7]: RBAC — One Policy, Both Clusters Denied
+## [CHAPTER 7]: Extend MVG to AWS and Kubernetes
+
+**Duration:** ~1:15
+
+**On screen:**
+
+Terminal showing:
+
+```bash
+akeyless usc list --usc-name demo-aws-usc
+akeyless usc get \
+  --usc-name demo-aws-usc \
+  --secret-id demo/mvg/aws/payments-api-key
+
+akeyless usc list --usc-name demo-k8s-usc
+akeyless usc get \
+  --usc-name demo-k8s-usc \
+  --secret-id payments-config
+```
+
+**Narration:**
+
+Up to this point, the demo has been intentionally Vault-first. That's the main use case. But MVG is more powerful than a Vault-only story.
+
+Now I'll switch to AWS Secrets Manager. Same Akeyless CLI session. `akeyless usc list` on the AWS connector. There is the AWS secret. `akeyless usc get` — retrieved through the same control plane, governed by the same policy model, logged in the same audit trail.
+
+Now Kubernetes Secrets. `akeyless usc list` on the Kubernetes connector. There is the secret object in the demo namespace. `akeyless usc get` — same story.
+
+So this is the real point of MVG. You can start with isolated Vault clusters, then extend the exact same governance layer to cloud secrets managers and Kubernetes without introducing a migration project first.
+
+---
+
+## [CHAPTER 8]: RBAC — One Policy Across Vault, AWS, and Kubernetes
 
 **Duration:** ~1:30
 
@@ -415,29 +453,41 @@ akeyless usc get \
   --usc-name demo-vault-usc-payments \
   --secret-id payments/stripe-key
 # Output: Unauthorized
+
+# Attempt AWS secret — also denied
+akeyless usc get \
+  --usc-name demo-aws-usc \
+  --secret-id demo/mvg/aws/payments-api-key
+# Output: Unauthorized
+
+# Attempt Kubernetes secret — also denied
+akeyless usc get \
+  --usc-name demo-k8s-usc \
+  --secret-id payments-config
+# Output: Unauthorized
 ```
 
-Error output on both attempts.
+Error output on all attempts.
 
 **Narration:**
 
-Governance isn't just visibility — it's enforcement. Let me show you what that looks like at scale.
+Governance isn't just visibility — it's enforcement. Let me show you what that looks like across a mixed secret estate.
 
-I'll authenticate as a denied identity. This identity has a single Akeyless role with a `deny` capability applied to paths under both USC connectors — backend and payments.
+I'll authenticate as a denied identity. This identity has a single Akeyless role with a `deny` capability applied to every connector path in this demo — backend Vault, payments Vault, AWS, and Kubernetes.
 
 `akeyless auth`. Credentials accepted — this is a valid identity.
 
 Now `akeyless usc get` on the backend database credential. Denied. The request never reached Vault.
 
-Now `akeyless usc get` on the payments Stripe key. Also denied.
+Now `akeyless usc get` on the payments Stripe key. Also denied. The AWS secret. Also denied. The Kubernetes secret. Also denied.
 
-One Akeyless policy blocked access to two separate Vault clusters simultaneously. I didn't update any Vault ACL policy. I didn't touch either cluster. I changed one Akeyless role and both clusters were governed immediately.
+One Akeyless policy blocked access across Vault, AWS, and Kubernetes simultaneously. I didn't update any Vault ACL policy. I didn't touch AWS IAM. I didn't touch Kubernetes RBAC for the consuming user. I changed one Akeyless role and every governed backend enforced it immediately.
 
 This is what centralized governance means at scale. When you need to revoke a team's access, you do it once in Akeyless. Every connected Vault instance enforces it.
 
 ---
 
-## [CHAPTER 8]: Audit Trail
+## [CHAPTER 9]: Audit Trail
 
 **Duration:** ~1:00
 
@@ -445,20 +495,20 @@ This is what centralized governance means at scale. When you need to revoke a te
 
 Browser showing the Akeyless console Logs page, with a filtered view showing log entries from this demo session. Entries visible include:
 
-- USC list operations (backend connector, then payments connector)
-- USC get operations from both connectors
+- USC list operations for Vault, AWS, and Kubernetes
+- USC get operations across all connectors
 - USC create (backend, Chapter 5a)
 - Native Vault write picked up by payments USC (Chapter 5b)
 - HVP vault kv list and get operations (Chapter 6)
-- Two denied USC get attempts from Chapter 7 — both with status "Denied"
+- Four denied USC get attempts from Chapter 8 — all with status "Denied"
 
 **Narration:**
 
-Last stop — the audit trail. One log for both clusters.
+Last stop — the audit trail. One log for every governed backend.
 
-Here's everything from this session. The USC discovery calls from Chapter 3. The USC reads from both connectors in Chapter 4. The create through the backend connector in 5a. The write we made natively in the payments Vault, picked up via USC in 5b. The HVP vault CLI calls from Chapter 6 — attributed to the Akeyless identity, not a generic token. And down here, both denial attempts from Chapter 7 — one for the backend cluster, one for payments, both status "Denied."
+Here's everything from this session. The Vault discovery calls from Chapter 3. The Vault reads in Chapter 4. The create through the backend connector in 5a. The write we made natively in the payments Vault, picked up via USC in 5b. The HVP vault CLI calls from Chapter 6. The AWS and Kubernetes reads from Chapter 7. And down here, the denial attempts from Chapter 8 — Vault, AWS, Kubernetes — all in one place.
 
-Two Vault clusters. One log. Every operation — regardless of which tool triggered it, regardless of which cluster held the secret — is in this single view. Forwardable to your SIEM. Filterable by identity, by action, by path, by cluster. This is what a CISO actually needs.
+Vault, cloud secrets managers, Kubernetes. One log. Every operation — regardless of which tool triggered it or which backend held the secret — is in this single view. Forwardable to your SIEM. Filterable by identity, by action, by path, by backend. This is what a CISO actually needs.
 
 ---
 
@@ -468,12 +518,12 @@ Two Vault clusters. One log. Every operation — regardless of which tool trigge
 
 **On screen:**
 
-> **Governance Without Rip-and-Replace**
+> **Centralized Governance Without Migration**
 >
-> - Universal Secret Connector: manage Vault secrets from the Akeyless control plane
-> - HashiCorp Vault Proxy: `vault` CLI unchanged, Akeyless becomes the backend
-> - Both paths produce a unified audit trail and enforce Akeyless RBAC
-> - No migration required — works with the secrets and workflows you have today
+> - Centralized RBAC, audit, and visibility across Vault and cloud secrets managers
+> - MVG for Akeyless-native governance across Vault, AWS, and Kubernetes
+> - HVP keeps the Vault API exactly as it is
+> - No migration required — adopt by namespace, environment, team, or platform
 >
 > **Get started:**
 > - Docs: docs.akeyless.io
@@ -481,6 +531,6 @@ Two Vault clusters. One log. Every operation — regardless of which tool trigge
 
 **Narration:**
 
-So that's the full picture. Two separate Vault clusters, one Akeyless control plane. USC and HVP are two different entry points into that control plane — one for teams adopting Akeyless natively, one for teams keeping the vault CLI. Both give you the same RBAC enforcement, the same audit trail, and the same central visibility across every connected Vault instance — without migrating a single secret or changing a single workflow.
+So that's the full picture. Two separate Vault clusters as the core use case, extended to AWS Secrets Manager and Kubernetes Secrets through the same Akeyless control plane. MVG and HVP are two different entry points into that control plane — one for teams adopting Akeyless-native governance, one for teams keeping the vault CLI exactly as it is. Both give you centralized RBAC, one audit trail, and one visibility layer across every connected backend — without migrating a single secret or changing a single workflow.
 
 If you want to try this yourself, the free tier at console.akeyless.io is a good place to start, and the full documentation for both USC and HVP is at docs.akeyless.io. Thanks for watching.
