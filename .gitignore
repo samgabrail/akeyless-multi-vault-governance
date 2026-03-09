@@ -35,3 +35,7 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Local demo artifacts
+demo/.akeyless-demo.env
+firebase-debug.log

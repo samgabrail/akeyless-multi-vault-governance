@@ -17,6 +17,7 @@ The repo is still Vault-led, but now extends the story with AWS Secrets Manager 
 | [`demo/gateway-values.yaml`](./demo/gateway-values.yaml) | Helm values for Akeyless Gateway on Kubernetes |
 | [`demo/akeyless-setup.sh`](./demo/akeyless-setup.sh) | Create Vault, AWS, and Kubernetes targets, USCs, and RBAC roles in Akeyless |
 | [`demo/setup-cloud-and-k8s-demo.sh`](./demo/setup-cloud-and-k8s-demo.sh) | Seed AWS Secrets Manager and Kubernetes demo resources |
+| [`demo/test-e2e.sh`](./demo/test-e2e.sh) | Repeatable end-to-end validation harness for the full demo |
 | [`demo/demo-commands.sh`](./demo/demo-commands.sh) | Live demo commands organized by chapter |
 | [`IMPLEMENTATION_TRACKER.md`](./IMPLEMENTATION_TRACKER.md) | Progress tracker for the webinar/blog expansion |
 
@@ -42,6 +43,9 @@ export AKEYLESS_GATEWAY_URL='https://<your-gateway-ip>:8000'
 
 # 5. Run the demo chapter by chapter
 source demo/demo-commands.sh
+
+# Or run the repeatable validation harness
+bash demo/test-e2e.sh
 ```
 
 ## Demo Topology vs Production

@@ -141,7 +141,7 @@ What this does:
 - Creates a Kubernetes service account with read/list access to secrets in that namespace
 - Prints the `export` commands needed for `demo/akeyless-setup.sh`
 
-After this step, copy the printed `export ...` lines into your shell. If your AWS credentials are not already present in the environment, also export:
+After this step, copy the printed `export ...` lines into your shell. `ENABLE_AWS_DEMO` is printed as `true` only if the local AWS CLI is actually authenticated. If your AWS credentials are not already present in the environment, also export:
 
 ```bash
 export AWS_ACCESS_KEY_ID='<your-access-key-id>'
@@ -226,7 +226,34 @@ What this creates:
 | Denied role | `demo-denied-role` | `deny` on paths under all configured USCs |
 | Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 8) |
 
-Retrieve the Access ID and Key for `demo-denied-auth` from the Akeyless console (Settings → Auth Methods) before running Chapter 8.
+The script is rerunnable and rewrites the demo-scoped Akeyless objects on each run. It also writes `demo/.akeyless-demo.env` with the generated Access IDs and Access Keys for the read-only and denied auth methods.
+
+Load that file before running the demo or the E2E test:
+
+```bash
+source demo/.akeyless-demo.env
+```
+
+## Step 4: Run the Repeatable End-to-End Test
+
+```bash
+bash demo/test-e2e.sh
+```
+
+What it does:
+
+- Ensures both Vault dev servers are running
+- Seeds AWS and Kubernetes demo backends
+- Reconciles Akeyless targets, USCs, roles, and auth methods
+- Verifies Vault MVG, HVP, Kubernetes MVG, and centralized deny RBAC
+- Uses unique test secret names and removes them afterward
+- Skips AWS validation automatically when local AWS credentials are not usable
+
+Optional cleanup:
+
+```bash
+bash demo/test-e2e.sh --cleanup
+```
 
 ---
 
@@ -439,18 +466,18 @@ kill $VAULT_PID_BACKEND $VAULT_PID_PAYMENTS
 ### Remove Akeyless resources
 
 ```bash
-akeyless delete-auth-methods --path /demo-denied-auth --profile demo
-akeyless delete-auth-methods --path /demo-readonly-auth --profile demo
+akeyless auth-method delete --name demo-denied-auth --profile demo
+akeyless auth-method delete --name demo-readonly-auth --profile demo
 akeyless delete-role --name demo-denied-role --profile demo
 akeyless delete-role --name demo-readonly-role --profile demo
-akeyless delete-item --item-name /demo-vault-usc-payments --profile demo
-akeyless delete-item --item-name /demo-vault-usc-backend --profile demo
-akeyless delete-item --item-name /demo-aws-usc --profile demo || true
-akeyless delete-item --item-name /demo-k8s-usc --profile demo || true
-akeyless target delete --name demo-aws-target --profile demo || true
-akeyless target delete --name demo-k8s-target --profile demo || true
-akeyless target delete --name demo-vault-target-payments --profile demo
-akeyless target delete --name demo-vault-target-backend --profile demo
+akeyless delete-item --name /demo-vault-usc-payments --profile demo
+akeyless delete-item --name /demo-vault-usc-backend --profile demo
+akeyless delete-item --name /demo-aws-usc --profile demo || true
+akeyless delete-item --name /demo-k8s-usc --profile demo || true
+akeyless target delete --name demo-aws-target --force-deletion --profile demo || true
+akeyless target delete --name demo-k8s-target --force-deletion --profile demo || true
+akeyless target delete --name demo-vault-target-payments --force-deletion --profile demo
+akeyless target delete --name demo-vault-target-backend --force-deletion --profile demo
 ```
 
 ### Remove the Kubernetes Gateway

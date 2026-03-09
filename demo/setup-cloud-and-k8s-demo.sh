@@ -27,6 +27,8 @@ echo "========================================================"
 echo "  Akeyless Demo — AWS + Kubernetes Seed Setup"
 echo "========================================================"
 
+AWS_DEMO_READY=false
+
 if command -v aws >/dev/null 2>&1; then
   echo ""
   echo "[1/3] Seeding AWS Secrets Manager secret..."
@@ -46,6 +48,7 @@ if command -v aws >/dev/null 2>&1; then
         --secret-string "$AWS_DEMO_SECRET_VALUE" >/dev/null
       echo "      Created: $AWS_DEMO_SECRET_NAME ($AWS_REGION)"
     fi
+    AWS_DEMO_READY=true
   else
     echo "      Skipped AWS setup: aws CLI is installed but not authenticated."
   fi
@@ -105,7 +108,7 @@ echo "      Service Account: $K8S_SERVICE_ACCOUNT"
 echo ""
 echo "[3/3] Export these before running demo/akeyless-setup.sh"
 echo ""
-echo "export ENABLE_AWS_DEMO=true"
+echo "export ENABLE_AWS_DEMO=$AWS_DEMO_READY"
 echo "export ENABLE_K8S_DEMO=true"
 echo "export AWS_REGION='$AWS_REGION'"
 echo "export AWS_DEMO_SECRET_NAME='$AWS_DEMO_SECRET_NAME'"
