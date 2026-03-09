@@ -13,6 +13,8 @@ AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_DEMO_SECRET_NAME="${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-mvg-demo}"
 K8S_DEMO_SECRET_NAME="${K8S_DEMO_SECRET_NAME:-payments-config}"
+AWS_USE_STS_DEMO="${AWS_USE_STS_DEMO:-true}"
+AWS_STS_DURATION_SECONDS="${AWS_STS_DURATION_SECONDS:-3600}"
 REQUIRE_AWS_E2E="${REQUIRE_AWS_E2E:-false}"
 CLEANUP_ONLY=false
 FULL_CLEANUP=false
@@ -83,6 +85,29 @@ normalize_vault_addresses_for_gateway() {
     fi
 }
 
+refresh_aws_session_credentials() {
+    local session_json
+
+    if [[ "${ENABLE_AWS_DEMO:-false}" != "true" ]]; then
+        return
+    fi
+
+    if [[ "$AWS_USE_STS_DEMO" != "true" ]]; then
+        return
+    fi
+
+    if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+        return
+    fi
+
+    unset AWS_SESSION_TOKEN
+    session_json="$(aws sts get-session-token --duration-seconds "$AWS_STS_DURATION_SECONDS")"
+    AWS_ACCESS_KEY_ID="$(printf '%s' "$session_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Credentials"]["AccessKeyId"])')"
+    AWS_SECRET_ACCESS_KEY="$(printf '%s' "$session_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Credentials"]["SecretAccessKey"])')"
+    AWS_SESSION_TOKEN="$(printf '%s' "$session_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Credentials"]["SessionToken"])')"
+    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+}
+
 cleanup_demo_resources() {
     echo "==> Cleaning up demo resources"
 
@@ -128,7 +153,8 @@ fi
 
 cloud_setup_output="$(bash "$SCRIPT_DIR/setup-cloud-and-k8s-demo.sh")"
 printf '%s\n' "$cloud_setup_output"
-eval "$(printf '%s\n' "$cloud_setup_output" | sed -n "s/^export /export /p")"
+eval "$(printf '%s\n' "$cloud_setup_output" | awk '/^export (ENABLE_AWS_DEMO|ENABLE_K8S_DEMO|AWS_REGION|AWS_DEMO_SECRET_NAME|AWS_USC_PREFIX|K8S_NAMESPACE|K8S_DEMO_SECRET_NAME|K8S_CLUSTER_ENDPOINT|K8S_CLUSTER_CA_CERT|K8S_CLUSTER_TOKEN)=/')"
+refresh_aws_session_credentials
 
 run "reconcile akeyless demo resources" env AKEYLESS_GATEWAY_URL="$AKEYLESS_GATEWAY_URL" bash "$SCRIPT_DIR/akeyless-setup.sh"
 source "$AKEYLESS_DEMO_ENV_FILE"
