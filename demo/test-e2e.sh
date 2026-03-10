@@ -12,6 +12,7 @@ LOCAL_VAULT_ADDR_PAYMENTS="${LOCAL_VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_ADDR_BACKEND="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_TOKEN="${VAULT_TOKEN:-root}"
+LOCAL_VAULT_TOKEN="$VAULT_TOKEN"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_DEMO_SECRET_NAME="${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}"
 AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
@@ -24,6 +25,9 @@ REQUIRE_AZURE_E2E="${REQUIRE_AZURE_E2E:-false}"
 AZ_CLI_BIN="${AZ_CLI_BIN:-}"
 CLEANUP_ONLY=false
 FULL_CLEANUP=false
+RAW_AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
+RAW_AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+RAW_AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN:-}"
 
 TARGET_BACKEND="${AKEYLESS_DEMO_FOLDER}/vault-target-backend"
 TARGET_PAYMENTS="${AKEYLESS_DEMO_FOLDER}/vault-target-payments"
@@ -110,6 +114,18 @@ rotate_synced_secret() {
     else
         akeyless update-secret-val --name "$name" --value "$new_value" --profile "$AKEYLESS_PROFILE"
     fi
+}
+
+aws_backend_cmd() {
+    if [[ -n "$RAW_AWS_ACCESS_KEY_ID" && -n "$RAW_AWS_SECRET_ACCESS_KEY" ]]; then
+        AWS_ACCESS_KEY_ID="$RAW_AWS_ACCESS_KEY_ID" \
+        AWS_SECRET_ACCESS_KEY="$RAW_AWS_SECRET_ACCESS_KEY" \
+        AWS_SESSION_TOKEN="$RAW_AWS_SESSION_TOKEN" \
+        aws "$@"
+        return
+    fi
+
+    aws "$@"
 }
 
 profile_field() {
@@ -296,7 +312,7 @@ export VAULT_TOKEN="${demo_access_id}..${demo_access_key}"
 run "hvp get db-password" vault kv get -format=json secret/myapp/db-password
 run "hvp get api-key" vault kv get -format=json secret/myapp/api-key
 export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
-export VAULT_TOKEN="${VAULT_TOKEN:-root}"
+export VAULT_TOKEN="$LOCAL_VAULT_TOKEN"
 
 aws_usc_verified=false
 if [[ "${ENABLE_AWS_DEMO:-false}" == "true" ]]; then
@@ -366,20 +382,20 @@ echo "--- exit=0 ---"
 # ── Synced secret rotation verification — AWS ────────────────────────────────
 if [[ "${ENABLE_AWS_DEMO:-false}" == "true" && "$aws_usc_verified" == "true" ]]; then
     echo "=== rotation verification aws ==="
-    BEFORE_AWS="$(aws secretsmanager get-secret-value \
+    BEFORE_AWS="$(aws_backend_cmd secretsmanager get-secret-value \
         --region "$AWS_REGION" \
         --secret-id "$AWS_DEMO_SECRET_NAME" \
-        --query SecretString -o text 2>/dev/null || echo UNAVAILABLE)"
+        --query SecretString --output text 2>/dev/null || echo UNAVAILABLE)"
     echo "Before rotation: $BEFORE_AWS"
 
     NEW_AWS_JSON="$(printf '{"api_key":"e2e-aws-rotated-%s"}' "$ts")"
     rotate_synced_secret "$ROTATED_AWS" "$NEW_AWS_JSON" json
     sleep 3
 
-    AFTER_AWS="$(aws secretsmanager get-secret-value \
+    AFTER_AWS="$(aws_backend_cmd secretsmanager get-secret-value \
         --region "$AWS_REGION" \
         --secret-id "$AWS_DEMO_SECRET_NAME" \
-        --query SecretString -o text 2>/dev/null || echo UNAVAILABLE)"
+        --query SecretString --output text 2>/dev/null || echo UNAVAILABLE)"
     echo "After rotation : $AFTER_AWS"
 
     if [[ "$BEFORE_AWS" == "$AFTER_AWS" || "$AFTER_AWS" == "UNAVAILABLE" ]]; then

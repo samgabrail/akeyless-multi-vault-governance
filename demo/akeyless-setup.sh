@@ -45,7 +45,7 @@ AKEYLESS_PROFILE="${AKEYLESS_PROFILE:-demo}"
 ENABLE_AWS_DEMO="${ENABLE_AWS_DEMO:-false}"
 ENABLE_AZURE_DEMO="${ENABLE_AZURE_DEMO:-false}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
-AWS_USC_PREFIX="${AWS_USC_PREFIX:-demo/mvg/aws/}"
+AWS_USC_PREFIX="${AWS_USC_PREFIX:-}"
 AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
 AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-payments-api-key}"
 AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}"
@@ -243,12 +243,19 @@ if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
 
     echo ""
     echo "==> Creating AWS USC: $USC_AWS"
-    akl create-usc \
-        --name "$USC_AWS" \
-        --target-to-associate "$TARGET_AWS" \
-        --gateway-url "$AKEYLESS_GATEWAY_URL" \
-        --usc-prefix "$AWS_USC_PREFIX" \
-        --use-prefix-as-filter true
+    if [[ -n "$AWS_USC_PREFIX" ]]; then
+        akl create-usc \
+            --name "$USC_AWS" \
+            --target-to-associate "$TARGET_AWS" \
+            --gateway-url "$AKEYLESS_GATEWAY_URL" \
+            --usc-prefix "$AWS_USC_PREFIX" \
+            --use-prefix-as-filter true
+    else
+        akl create-usc \
+            --name "$USC_AWS" \
+            --target-to-associate "$TARGET_AWS" \
+            --gateway-url "$AKEYLESS_GATEWAY_URL"
+    fi
 fi
 
 if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then

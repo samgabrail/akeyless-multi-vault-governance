@@ -28,13 +28,42 @@ echo "========================================================"
 AWS_DEMO_READY=false
 AZURE_DEMO_READY=false
 
+aws_secret_deleted() {
+  python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("DeletedDate") else 1)'
+}
+
 if command -v aws >/dev/null 2>&1; then
   echo ""
   echo "[1/3] Seeding AWS Secrets Manager secret..."
   if aws sts get-caller-identity --output json >/dev/null 2>&1; then
-    if aws secretsmanager describe-secret \
+    aws_secret_description="$(aws secretsmanager describe-secret \
       --region "$AWS_REGION" \
-      --secret-id "$AWS_DEMO_SECRET_NAME" >/dev/null 2>&1; then
+      --secret-id "$AWS_DEMO_SECRET_NAME" \
+      --output json 2>/dev/null || true)"
+
+    if [[ -n "$aws_secret_description" ]]; then
+      if printf '%s' "$aws_secret_description" | aws_secret_deleted; then
+        aws secretsmanager restore-secret \
+          --region "$AWS_REGION" \
+          --secret-id "$AWS_DEMO_SECRET_NAME" >/dev/null
+
+        for _ in {1..30}; do
+          aws_secret_description="$(aws secretsmanager describe-secret \
+            --region "$AWS_REGION" \
+            --secret-id "$AWS_DEMO_SECRET_NAME" \
+            --output json 2>/dev/null || true)"
+
+          if [[ -n "$aws_secret_description" ]] && ! printf '%s' "$aws_secret_description" | aws_secret_deleted; then
+            if aws secretsmanager get-secret-value \
+            --region "$AWS_REGION" \
+            --secret-id "$AWS_DEMO_SECRET_NAME" >/dev/null 2>&1; then
+              break
+            fi
+          fi
+          sleep 1
+        done
+      fi
+
       aws secretsmanager put-secret-value \
         --region "$AWS_REGION" \
         --secret-id "$AWS_DEMO_SECRET_NAME" \
@@ -103,7 +132,7 @@ echo "export ENABLE_AWS_DEMO=$AWS_DEMO_READY"
 echo "export ENABLE_AZURE_DEMO=$AZURE_DEMO_READY"
 echo "export AWS_REGION='$AWS_REGION'"
 echo "export AWS_DEMO_SECRET_NAME='$AWS_DEMO_SECRET_NAME'"
-echo "export AWS_USC_PREFIX='demo/mvg/aws/'"
+echo "export AWS_USC_PREFIX=''"
 echo "export AZURE_VAULT_NAME='$AZURE_VAULT_NAME'"
 echo "export AZURE_STATIC_SECRET_NAME='$AZURE_STATIC_SECRET_NAME'"
 echo "export AZURE_ROTATED_SECRET_NAME='$AZURE_ROTATED_SECRET_NAME'"
