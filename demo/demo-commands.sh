@@ -10,19 +10,20 @@
 # export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
 # export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8202'
 # export VAULT_TOKEN='root'
-# export USC_BACKEND='demo-vault-usc-backend'
-# export USC_PAYMENTS='demo-vault-usc-payments'
-# export USC_AWS='demo-aws-usc'
-# export USC_AZURE='demo-azure-usc'
+# export AKEYLESS_DEMO_FOLDER='MVG-demo'
+# export USC_BACKEND='MVG-demo/vault-usc-backend'
+# export USC_PAYMENTS='MVG-demo/vault-usc-payments'
+# export USC_AWS='MVG-demo/aws-usc'
+# export USC_AZURE='MVG-demo/azure-usc'
 # export AKEYLESS_GW='https://192.168.1.82:8000'    # your Gateway URL
 # export AKEYLESS_PROFILE='demo'                     # akeyless CLI profile name
 # export AWS_DEMO_SECRET_NAME='demo/mvg/aws/payments-api-key'
 # export AZURE_VAULT_NAME='mvg-demo-kv'
 # export AZURE_STATIC_SECRET_NAME='payments-api-key'
 # export AZURE_ROTATED_SECRET_NAME='demo-azure-rotated-api-key'
-# export ROTATED_VAULT='demo-vault-rotated-api-key'
-# export ROTATED_AWS='demo-aws-rotated-secret'
-# export ROTATED_AZURE='demo-azure-rotated-api-key'
+# export ROTATED_VAULT='MVG-demo/vault-rotated-api-key'
+# export ROTATED_AWS='MVG-demo/aws-rotated-secret'
+# export ROTATED_AZURE='MVG-demo/azure-rotated-api-key'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,12 +66,12 @@ echo "--- Chapter 3: Discover secrets across both Vault clusters ---"
 
 # Backend team's Vault — inventory via USC
 akeyless usc list \
-  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --usc-name "${USC_BACKEND:-MVG-demo/vault-usc-backend}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Payments team's Vault — inventory via USC
 akeyless usc list \
-  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --usc-name "${USC_PAYMENTS:-MVG-demo/vault-usc-payments}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Key point: same CLI session can discover both Vault inventories with one
@@ -84,13 +85,13 @@ echo "--- Chapter 4: Read secrets from both Vault clusters via USC ---"
 
 # Backend team's Vault — read via USC
 akeyless usc get \
-  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --usc-name "${USC_BACKEND:-MVG-demo/vault-usc-backend}" \
   --secret-id "secret/myapp/db-password" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Payments team's Vault — read via USC
 akeyless usc get \
-  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --usc-name "${USC_PAYMENTS:-MVG-demo/vault-usc-payments}" \
   --secret-id "secret/payments/stripe-key" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
@@ -107,7 +108,7 @@ echo "--- Chapter 5a: Create via Akeyless USC → appears in backend Vault ---"
 ENCODED_VALUE=$(echo -n '{"value":"hello-from-akeyless"}' | base64 -w0)
 
 akeyless usc create \
-  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --usc-name "${USC_BACKEND:-MVG-demo/vault-usc-backend}" \
   --secret-name "secret/myapp/created-from-akeyless" \
   --value "$ENCODED_VALUE" \
   --profile "${AKEYLESS_PROFILE:-demo}"
@@ -128,11 +129,11 @@ vault kv put secret/payments/created-from-vault value="hello-from-payments-vault
 
 # Verify Akeyless sees it immediately — no sync job, no polling
 akeyless usc list \
-  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --usc-name "${USC_PAYMENTS:-MVG-demo/vault-usc-payments}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 akeyless usc get \
-  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --usc-name "${USC_PAYMENTS:-MVG-demo/vault-usc-payments}" \
   --secret-id "secret/payments/created-from-vault" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
@@ -179,21 +180,21 @@ echo "--- Chapter 7: Extend MVG to AWS Secrets Manager and Azure Key Vault ---"
 
 # AWS Secrets Manager via USC-backed MVG
 akeyless usc list \
-  --usc-name "${USC_AWS:-demo-aws-usc}" \
+  --usc-name "${USC_AWS:-MVG-demo/aws-usc}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 akeyless usc get \
-  --usc-name "${USC_AWS:-demo-aws-usc}" \
+  --usc-name "${USC_AWS:-MVG-demo/aws-usc}" \
   --secret-id "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 # Azure Key Vault via USC-backed MVG
 akeyless usc list \
-  --usc-name "${USC_AZURE:-demo-azure-usc}" \
+  --usc-name "${USC_AZURE:-MVG-demo/azure-usc}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 akeyless usc get \
-  --usc-name "${USC_AZURE:-demo-azure-usc}" \
+  --usc-name "${USC_AZURE:-MVG-demo/azure-usc}" \
   --secret-id "${AZURE_STATIC_SECRET_NAME:-payments-api-key}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
@@ -215,7 +216,7 @@ vault kv get -field=api_key secret/myapp/api-key
 # Trigger Akeyless to rotate the Vault secret immediately.
 # Akeyless generates a new value and writes it back through the Gateway.
 akeyless rotated-secret set-next-rotation-date \
-  --name "${ROTATED_VAULT:-demo-vault-rotated-api-key}" \
+  --name "${ROTATED_VAULT:-MVG-demo/vault-rotated-api-key}" \
   --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
@@ -227,7 +228,7 @@ vault kv get -field=api_key secret/myapp/api-key
 
 # ── AWS Secrets Manager rotation ─────────────────────────────────────────────
 akeyless rotated-secret set-next-rotation-date \
-  --name "${ROTATED_AWS:-demo-aws-rotated-secret}" \
+  --name "${ROTATED_AWS:-MVG-demo/aws-rotated-secret}" \
   --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
@@ -236,7 +237,7 @@ echo "    aws secretsmanager get-secret-value --secret-id ${AWS_DEMO_SECRET_NAME
 
 # ── Azure Key Vault rotation ─────────────────────────────────────────────────
 akeyless rotated-secret set-next-rotation-date \
-  --name "${ROTATED_AZURE:-demo-azure-rotated-api-key}" \
+  --name "${ROTATED_AZURE:-MVG-demo/azure-rotated-api-key}" \
   --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
@@ -264,7 +265,7 @@ DENIED_TOKEN=$(akeyless auth \
 
 # Attempt access to backend Vault — denied
 akeyless usc get \
-  --usc-name "${USC_BACKEND:-demo-vault-usc-backend}" \
+  --usc-name "${USC_BACKEND:-MVG-demo/vault-usc-backend}" \
   --secret-id "secret/myapp/db-password" \
   --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
   --token "$DENIED_TOKEN"
@@ -272,7 +273,7 @@ akeyless usc get \
 
 # Attempt access to payments Vault — also denied (same policy, second cluster)
 akeyless usc get \
-  --usc-name "${USC_PAYMENTS:-demo-vault-usc-payments}" \
+  --usc-name "${USC_PAYMENTS:-MVG-demo/vault-usc-payments}" \
   --secret-id "secret/payments/stripe-key" \
   --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
   --token "$DENIED_TOKEN"
@@ -280,7 +281,7 @@ akeyless usc get \
 
 # Attempt access to AWS Secrets Manager path — also denied
 akeyless usc get \
-  --usc-name "${USC_AWS:-demo-aws-usc}" \
+  --usc-name "${USC_AWS:-MVG-demo/aws-usc}" \
   --secret-id "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
   --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
   --token "$DENIED_TOKEN"
@@ -288,7 +289,7 @@ akeyless usc get \
 
 # Attempt access to Azure Key Vault secret — also denied
 akeyless usc get \
-  --usc-name "${USC_AZURE:-demo-azure-usc}" \
+  --usc-name "${USC_AZURE:-MVG-demo/azure-usc}" \
   --secret-id "${AZURE_STATIC_SECRET_NAME:-payments-api-key}" \
   --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
   --token "$DENIED_TOKEN"

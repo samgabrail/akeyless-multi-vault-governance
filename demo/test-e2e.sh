@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 AKEYLESS_PROFILE="${AKEYLESS_PROFILE:-demo}"
+AKEYLESS_DEMO_FOLDER="${AKEYLESS_DEMO_FOLDER:-MVG-demo}"
 AKEYLESS_DEMO_ENV_FILE="${AKEYLESS_DEMO_ENV_FILE:-$SCRIPT_DIR/.akeyless-demo.env}"
 VAULT_ADDR_BACKEND="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
@@ -18,8 +19,21 @@ AWS_USE_STS_DEMO="${AWS_USE_STS_DEMO:-true}"
 AWS_STS_DURATION_SECONDS="${AWS_STS_DURATION_SECONDS:-3600}"
 REQUIRE_AWS_E2E="${REQUIRE_AWS_E2E:-false}"
 REQUIRE_AZURE_E2E="${REQUIRE_AZURE_E2E:-false}"
+AZ_CLI_BIN="${AZ_CLI_BIN:-}"
 CLEANUP_ONLY=false
 FULL_CLEANUP=false
+
+TARGET_BACKEND="${AKEYLESS_DEMO_FOLDER}/vault-target-backend"
+TARGET_PAYMENTS="${AKEYLESS_DEMO_FOLDER}/vault-target-payments"
+TARGET_AWS="${AKEYLESS_DEMO_FOLDER}/aws-target"
+TARGET_AZURE="${AKEYLESS_DEMO_FOLDER}/azure-target"
+USC_BACKEND_NAME="${AKEYLESS_DEMO_FOLDER}/vault-usc-backend"
+USC_PAYMENTS_NAME="${AKEYLESS_DEMO_FOLDER}/vault-usc-payments"
+USC_AWS_NAME="${AKEYLESS_DEMO_FOLDER}/aws-usc"
+USC_AZURE_NAME="${AKEYLESS_DEMO_FOLDER}/azure-usc"
+ROTATED_VAULT_NAME="${AKEYLESS_DEMO_FOLDER}/vault-rotated-api-key"
+ROTATED_AWS_NAME="${AKEYLESS_DEMO_FOLDER}/aws-rotated-secret"
+ROTATED_AZURE_NAME="${AKEYLESS_DEMO_FOLDER}/azure-rotated-api-key"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -37,6 +51,44 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+
+resolve_azure_cli() {
+    local candidate
+    local seen=""
+
+    if [[ -n "$AZ_CLI_BIN" ]] && "$AZ_CLI_BIN" version >/dev/null 2>&1; then
+        PATH="$(dirname "$AZ_CLI_BIN"):$PATH"
+        export PATH AZ_CLI_BIN
+        return
+    fi
+
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        if [[ ":$seen:" == *":$candidate:"* ]]; then
+            continue
+        fi
+        seen="${seen}:$candidate"
+
+        if [[ -x "$candidate" ]] && "$candidate" version >/dev/null 2>&1; then
+            AZ_CLI_BIN="$candidate"
+            PATH="$(dirname "$candidate"):$PATH"
+            export PATH AZ_CLI_BIN
+            return
+        fi
+    done < <(printf '%s\n' "$(which -a az 2>/dev/null)" /usr/bin/az /bin/az)
+
+    AZ_CLI_BIN=""
+    export AZ_CLI_BIN
+}
+
+az_cmd() {
+    if [[ -z "$AZ_CLI_BIN" ]]; then
+        echo "ERROR: no working Azure CLI binary was found." >&2
+        return 127
+    fi
+
+    "$AZ_CLI_BIN" "$@"
+}
 
 run() {
     local name="$1"
@@ -117,17 +169,17 @@ cleanup_demo_resources() {
     akeyless auth-method delete --name demo-readonly-auth --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-role --name demo-denied-role --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-role --name demo-readonly-role --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-azure-rotated-api-key --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-aws-rotated-secret --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-vault-rotated-api-key --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-azure-usc --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-aws-usc --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-vault-usc-payments --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-vault-usc-backend --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless target delete --name demo-azure-target --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless target delete --name demo-aws-target --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless target delete --name demo-vault-target-payments --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless target delete --name demo-vault-target-backend --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$ROTATED_AZURE_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$ROTATED_AWS_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$ROTATED_VAULT_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$USC_AZURE_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$USC_AWS_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$USC_PAYMENTS_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name "/$USC_BACKEND_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless target delete --name "$TARGET_AZURE" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless target delete --name "$TARGET_AWS" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless target delete --name "$TARGET_PAYMENTS" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless target delete --name "$TARGET_BACKEND" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
 
     if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
         aws secretsmanager delete-secret \
@@ -136,17 +188,19 @@ cleanup_demo_resources() {
             --force-delete-without-recovery >/dev/null 2>&1 || true
     fi
 
-    if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1 && [[ -n "${AZURE_VAULT_NAME:-}" ]]; then
-        az keyvault secret delete \
+    if [[ -n "$AZ_CLI_BIN" ]] && az_cmd account show >/dev/null 2>&1 && [[ -n "${AZURE_VAULT_NAME:-}" ]]; then
+        az_cmd keyvault secret delete \
             --vault-name "$AZURE_VAULT_NAME" \
             --name "$AZURE_STATIC_SECRET_NAME" >/dev/null 2>&1 || true
-        az keyvault secret delete \
+        az_cmd keyvault secret delete \
             --vault-name "$AZURE_VAULT_NAME" \
             --name "$AZURE_ROTATED_SECRET_NAME" >/dev/null 2>&1 || true
     fi
 
     rm -f "$AKEYLESS_DEMO_ENV_FILE"
 }
+
+resolve_azure_cli
 
 if [[ "$CLEANUP_ONLY" == "true" ]]; then
     cleanup_demo_resources
@@ -290,7 +344,7 @@ echo "--- exit=0 ---"
 # ── Rotated secret verification — Azure ──────────────────────────────────────
 if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true" ]]; then
     echo "=== rotation verification azure ==="
-    BEFORE_AZ="$(az keyvault secret show \
+    BEFORE_AZ="$(az_cmd keyvault secret show \
         --vault-name "$AZURE_VAULT_NAME" \
         --name "$AZURE_ROTATED_SECRET_NAME" \
         --query value -o tsv 2>/dev/null || echo UNAVAILABLE)"
@@ -303,7 +357,7 @@ if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true"
 
     sleep 12
 
-    AFTER_AZ="$(az keyvault secret show \
+    AFTER_AZ="$(az_cmd keyvault secret show \
         --vault-name "$AZURE_VAULT_NAME" \
         --name "$AZURE_ROTATED_SECRET_NAME" \
         --query value -o tsv 2>/dev/null || echo UNAVAILABLE)"

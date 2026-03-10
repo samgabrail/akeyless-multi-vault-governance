@@ -10,25 +10,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-TARGET_BACKEND="demo-vault-target-backend"
-TARGET_PAYMENTS="demo-vault-target-payments"
-TARGET_AWS="demo-aws-target"
-TARGET_AZURE="demo-azure-target"
+DEMO_FOLDER="${AKEYLESS_DEMO_FOLDER:-MVG-demo}"
 
-USC_BACKEND="demo-vault-usc-backend"
-USC_PAYMENTS="demo-vault-usc-payments"
-USC_AWS="demo-aws-usc"
-USC_AZURE="demo-azure-usc"
+TARGET_BACKEND="${DEMO_FOLDER}/vault-target-backend"
+TARGET_PAYMENTS="${DEMO_FOLDER}/vault-target-payments"
+TARGET_AWS="${DEMO_FOLDER}/aws-target"
+TARGET_AZURE="${DEMO_FOLDER}/azure-target"
 
-USC_PATH_BACKEND="/demo-vault-usc-backend/*"
-USC_PATH_PAYMENTS="/demo-vault-usc-payments/*"
-USC_PATH_AWS="/demo-aws-usc/*"
-USC_PATH_AZURE="/demo-azure-usc/*"
+USC_BACKEND="${DEMO_FOLDER}/vault-usc-backend"
+USC_PAYMENTS="${DEMO_FOLDER}/vault-usc-payments"
+USC_AWS="${DEMO_FOLDER}/aws-usc"
+USC_AZURE="${DEMO_FOLDER}/azure-usc"
+
+USC_PATH_BACKEND="/${USC_BACKEND}/*"
+USC_PATH_PAYMENTS="/${USC_PAYMENTS}/*"
+USC_PATH_AWS="/${USC_AWS}/*"
+USC_PATH_AZURE="/${USC_AZURE}/*"
 
 # Rotated secret item names (Akeyless items that manage rotation schedules)
-ROTATED_VAULT="demo-vault-rotated-api-key"
-ROTATED_AWS="demo-aws-rotated-secret"
-ROTATED_AZURE="demo-azure-rotated-api-key"
+ROTATED_VAULT="${DEMO_FOLDER}/vault-rotated-api-key"
+ROTATED_AWS="${DEMO_FOLDER}/aws-rotated-secret"
+ROTATED_AZURE="${DEMO_FOLDER}/azure-rotated-api-key"
 
 READONLY_ROLE_NAME="demo-readonly-role"
 READONLY_AUTH_NAME="demo-readonly-auth"
@@ -227,13 +229,11 @@ fi
 if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
     echo ""
     echo "==> Creating Azure Key Vault target: $TARGET_AZURE"
-    # NOTE: verify exact flag names against your installed akeyless CLI version
-    # (akeyless target create azure --help)
     akl target create azure \
         --name "$TARGET_AZURE" \
-        --azure-tenant-id "$AZURE_TENANT_ID" \
-        --azure-client-id "$AZURE_CLIENT_ID" \
-        --azure-client-secret "$AZURE_CLIENT_SECRET"
+        --tenant-id "$AZURE_TENANT_ID" \
+        --client-id "$AZURE_CLIENT_ID" \
+        --client-secret "$AZURE_CLIENT_SECRET"
 
     echo ""
     echo "==> Creating Azure Key Vault USC: $USC_AZURE"
@@ -359,6 +359,7 @@ akl assoc-role-am --role-name "$DENIED_ROLE_NAME" --am-name "$DENIED_AUTH_NAME"
 
 cat > "$AKEYLESS_DEMO_ENV_FILE" <<EOF
 export AKEYLESS_PROFILE='$AKEYLESS_PROFILE'
+export AKEYLESS_DEMO_FOLDER='$DEMO_FOLDER'
 export AKEYLESS_GW='$AKEYLESS_GATEWAY_URL'
 export USC_BACKEND='$USC_BACKEND'
 export USC_PAYMENTS='$USC_PAYMENTS'

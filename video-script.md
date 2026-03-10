@@ -233,10 +233,10 @@ Terminal showing:
 
 ```bash
 # Backend team's Vault via USC
-akeyless usc list --usc-name demo-vault-usc-backend
+akeyless usc list --usc-name MVG-demo/vault-usc-backend
 
 # Payments team's Vault via USC
-akeyless usc list --usc-name demo-vault-usc-payments
+akeyless usc list --usc-name MVG-demo/vault-usc-payments
 ```
 
 Output showing both secret inventories.
@@ -245,9 +245,9 @@ Output showing both secret inventories.
 
 This is the key moment. I'm now using the Akeyless CLI, and I'm going to discover what already exists in both Vault clusters from the same session.
 
-`akeyless usc list` on `demo-vault-usc-backend` — there are the backend team's secrets. Same paths we saw directly in Vault.
+`akeyless usc list` on `MVG-demo/vault-usc-backend` — there are the backend team's secrets. Same paths we saw directly in Vault.
 
-Now — same CLI, same session — let me switch to the payments connector. `akeyless usc list` on `demo-vault-usc-payments` — payments secrets.
+Now — same CLI, same session — let me switch to the payments connector. `akeyless usc list` on `MVG-demo/vault-usc-payments` — payments secrets.
 
 Two separate Vault clusters. One Akeyless CLI session. Same RBAC policies govern both. Same audit trail captures both. And I didn't migrate or sync anything first. Akeyless can discover what's already in each Vault the moment the connectors are in place.
 
@@ -264,12 +264,12 @@ Terminal showing:
 ```bash
 # Backend team's Vault via USC
 akeyless usc get \
-  --usc-name demo-vault-usc-backend \
+  --usc-name MVG-demo/vault-usc-backend \
   --secret-id myapp/db-password
 
 # Payments team's Vault via USC
 akeyless usc get \
-  --usc-name demo-vault-usc-payments \
+  --usc-name MVG-demo/vault-usc-payments \
   --secret-id payments/stripe-key
 ```
 
@@ -298,7 +298,7 @@ Terminal showing:
 ```bash
 # Create via Akeyless USC for backend Vault
 akeyless usc create \
-  --usc-name demo-vault-usc-backend \
+  --usc-name MVG-demo/vault-usc-backend \
   --secret-name myapp/created-from-akeyless \
   --value "value=hello-from-akeyless"
 
@@ -339,10 +339,10 @@ export VAULT_ADDR='http://127.0.0.1:8202'
 vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
 # Verify Akeyless sees it immediately
-akeyless usc list --usc-name demo-vault-usc-payments
+akeyless usc list --usc-name MVG-demo/vault-usc-payments
 
 akeyless usc get \
-  --usc-name demo-vault-usc-payments \
+  --usc-name MVG-demo/vault-usc-payments \
   --secret-id payments/created-from-vault
 ```
 
@@ -408,14 +408,14 @@ Same command. Same output. Zero code changes. Zero changes to scripts, pipelines
 Terminal showing:
 
 ```bash
-akeyless usc list --usc-name demo-aws-usc
+akeyless usc list --usc-name MVG-demo/aws-usc
 akeyless usc get \
-  --usc-name demo-aws-usc \
+  --usc-name MVG-demo/aws-usc \
   --secret-id demo/mvg/aws/payments-api-key
 
-akeyless usc list --usc-name demo-azure-usc
+akeyless usc list --usc-name MVG-demo/azure-usc
 akeyless usc get \
-  --usc-name demo-azure-usc \
+  --usc-name MVG-demo/azure-usc \
   --secret-id payments-api-key
 ```
 
@@ -446,7 +446,7 @@ vault kv get -field=api_key secret/myapp/api-key
 
 # Trigger Akeyless to rotate the secret now
 akeyless rotated-secret set-next-rotation-date \
-  --name demo-vault-rotated-api-key \
+  --name MVG-demo/vault-rotated-api-key \
   --next-rotation-date "2026-03-10T12:00:00Z"
 
 # After rotation — Akeyless wrote the new value back to Vault
@@ -455,11 +455,11 @@ vault kv get -field=api_key secret/myapp/api-key
 
 # Same rotation trigger for AWS and Azure
 akeyless rotated-secret set-next-rotation-date \
-  --name demo-aws-rotated-secret \
+  --name MVG-demo/aws-rotated-secret \
   --next-rotation-date "2026-03-10T12:00:00Z"
 
 akeyless rotated-secret set-next-rotation-date \
-  --name demo-azure-rotated-api-key \
+  --name MVG-demo/azure-rotated-api-key \
   --next-rotation-date "2026-03-10T12:00:00Z"
 ```
 
@@ -473,7 +473,7 @@ Akeyless solves this with first-class rotated secrets. Let me show you what that
 
 Here is the current value of `api-key` in our backend HashiCorp Vault — the one we seeded at the start of the demo. I'm going to ask Akeyless to rotate it now.
 
-`akeyless rotated-secret set-next-rotation-date` on `demo-vault-rotated-api-key`. Rotation triggered.
+`akeyless rotated-secret set-next-rotation-date` on `MVG-demo/vault-rotated-api-key`. Rotation triggered.
 
 Now I'll go back to the Vault CLI and read the same secret.
 
@@ -505,25 +505,25 @@ akeyless auth \
 
 # Attempt backend Vault — denied
 akeyless usc get \
-  --usc-name demo-vault-usc-backend \
+  --usc-name MVG-demo/vault-usc-backend \
   --secret-id myapp/db-password
 # Output: Unauthorized
 
 # Attempt payments Vault — also denied
 akeyless usc get \
-  --usc-name demo-vault-usc-payments \
+  --usc-name MVG-demo/vault-usc-payments \
   --secret-id payments/stripe-key
 # Output: Unauthorized
 
 # Attempt AWS secret — also denied
 akeyless usc get \
-  --usc-name demo-aws-usc \
+  --usc-name MVG-demo/aws-usc \
   --secret-id demo/mvg/aws/payments-api-key
 # Output: Unauthorized
 
 # Attempt Azure Key Vault secret — also denied
 akeyless usc get \
-  --usc-name demo-azure-usc \
+  --usc-name MVG-demo/azure-usc \
   --secret-id payments-api-key
 # Output: Unauthorized
 ```

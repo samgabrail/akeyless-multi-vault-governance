@@ -66,6 +66,7 @@ akeyless auth \
 | `VAULT_ADDR_BACKEND` | `http://127.0.0.1:8200` | Address of backend team's Vault |
 | `VAULT_ADDR_PAYMENTS` | `http://127.0.0.1:8202` | Address of payments team's Vault |
 | `VAULT_TOKEN` | `root` | Root token (same for both dev instances) |
+| `AKEYLESS_DEMO_FOLDER` | `MVG-demo` | Akeyless folder used for demo targets, USCs, and rotated secrets |
 | `AKEYLESS_GATEWAY_URL` | _(required)_ | External URL of your deployed Gateway |
 | `ENABLE_AWS_DEMO` | `false` | Whether to create the AWS target + USC |
 | `ENABLE_K8S_DEMO` | `false` | Whether to create the Kubernetes target + USC |
@@ -74,10 +75,10 @@ akeyless auth \
 | `AWS_DEMO_SECRET_NAME` | `demo/mvg/aws/payments-api-key` | AWS secret used in the demo |
 | `K8S_NAMESPACE` | `mvg-demo` | Namespace used for the Kubernetes demo |
 | `K8S_DEMO_SECRET_NAME` | `payments-config` | Kubernetes Secret object used in the demo |
-| `USC_BACKEND` | `demo-vault-usc-backend` | USC name for backend Vault |
-| `USC_PAYMENTS` | `demo-vault-usc-payments` | USC name for payments Vault |
-| `USC_AWS` | `demo-aws-usc` | USC name for AWS Secrets Manager |
-| `USC_K8S` | `demo-k8s-usc` | USC name for Kubernetes Secrets |
+| `USC_BACKEND` | `MVG-demo/vault-usc-backend` | USC name for backend Vault |
+| `USC_PAYMENTS` | `MVG-demo/vault-usc-payments` | USC name for payments Vault |
+| `USC_AWS` | `MVG-demo/aws-usc` | USC name for AWS Secrets Manager |
+| `USC_K8S` | `MVG-demo/k8s-usc` | USC name for Kubernetes Secrets |
 
 Quick-copy block:
 
@@ -85,6 +86,7 @@ Quick-copy block:
 export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
 export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8202'
 export VAULT_TOKEN='root'
+export AKEYLESS_DEMO_FOLDER='MVG-demo'
 export AKEYLESS_GATEWAY_URL='https://<your-gateway-external-ip>:8000'
 export ENABLE_AWS_DEMO='true'
 export ENABLE_K8S_DEMO='true'
@@ -93,10 +95,10 @@ export AWS_USC_PREFIX='demo/mvg/aws/'
 export AWS_DEMO_SECRET_NAME='demo/mvg/aws/payments-api-key'
 export K8S_NAMESPACE='mvg-demo'
 export K8S_DEMO_SECRET_NAME='payments-config'
-export USC_BACKEND='demo-vault-usc-backend'
-export USC_PAYMENTS='demo-vault-usc-payments'
-export USC_AWS='demo-aws-usc'
-export USC_K8S='demo-k8s-usc'
+export USC_BACKEND='MVG-demo/vault-usc-backend'
+export USC_PAYMENTS='MVG-demo/vault-usc-payments'
+export USC_AWS='MVG-demo/aws-usc'
+export USC_K8S='MVG-demo/k8s-usc'
 ```
 
 > **Gateway networking note:** `VAULT_ADDR_BACKEND` and `VAULT_ADDR_PAYMENTS` are the addresses your Akeyless Gateway uses to reach the Vault instances. If your Gateway runs on Kubernetes and Vault runs on your local machine, use your host machine's network IP (e.g., `http://192.168.1.100:8200`) rather than `127.0.0.1`. On Docker Desktop, `http://host.docker.internal:8200` works.
@@ -213,20 +215,22 @@ What this creates:
 
 | Resource | Name | Purpose |
 |---|---|---|
-| Vault Target | `demo-vault-target-backend` | Connection to backend Vault (port 8200) |
-| Vault Target | `demo-vault-target-payments` | Connection to payments Vault (port 8202) |
-| AWS Target | `demo-aws-target` | Connection to AWS Secrets Manager |
-| Kubernetes Target | `demo-k8s-target` | Connection to the Kubernetes cluster |
-| USC | `demo-vault-usc-backend` | Akeyless window into backend Vault |
-| USC | `demo-vault-usc-payments` | Akeyless window into payments Vault |
-| USC | `demo-aws-usc` | Akeyless window into AWS Secrets Manager |
-| USC | `demo-k8s-usc` | Akeyless window into Kubernetes Secrets |
+| Vault Target | `MVG-demo/vault-target-backend` | Connection to backend Vault (port 8200) |
+| Vault Target | `MVG-demo/vault-target-payments` | Connection to payments Vault (port 8202) |
+| AWS Target | `MVG-demo/aws-target` | Connection to AWS Secrets Manager |
+| Kubernetes Target | `MVG-demo/k8s-target` | Connection to the Kubernetes cluster |
+| USC | `MVG-demo/vault-usc-backend` | Akeyless window into backend Vault |
+| USC | `MVG-demo/vault-usc-payments` | Akeyless window into payments Vault |
+| USC | `MVG-demo/aws-usc` | Akeyless window into AWS Secrets Manager |
+| USC | `MVG-demo/k8s-usc` | Akeyless window into Kubernetes Secrets |
 | Read-only role | `demo-readonly-role` | `read` + `list` on paths under all configured USCs |
 | Read-only auth | `demo-readonly-auth` | API key identity for read-only role |
 | Denied role | `demo-denied-role` | `deny` on paths under all configured USCs |
 | Denied auth | `demo-denied-auth` | API key identity for denied role (used in Chapter 8) |
 
 The script is rerunnable and rewrites the demo-scoped Akeyless objects on each run. It also writes `demo/.akeyless-demo.env` with the generated Access IDs and Access Keys for the read-only and denied auth methods.
+
+All Akeyless targets, USCs, and rotated-secret items are created under the `/MVG-demo` folder by default.
 
 Load that file before running the demo or the E2E test:
 
@@ -300,10 +304,10 @@ In this demo, one Gateway pod bridges both Vault instances to the Akeyless contr
 
 ```bash
 # Backend Vault via USC
-akeyless usc list --usc-name demo-vault-usc-backend
+akeyless usc list --usc-name MVG-demo/vault-usc-backend
 
 # Payments Vault via USC
-akeyless usc list --usc-name demo-vault-usc-payments
+akeyless usc list --usc-name MVG-demo/vault-usc-payments
 ```
 
 > Both Vault clusters are visible from the same Akeyless CLI session. Same RBAC model governs both. Same audit trail captures both. Secrets have not moved — each USC inventories its respective Vault instance in real time.
@@ -313,8 +317,8 @@ akeyless usc list --usc-name demo-vault-usc-payments
 ### Chapter 4: Read Secrets via USC
 
 ```bash
-akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-password"
-akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
+akeyless usc get --usc-name MVG-demo/vault-usc-backend --secret-id "myapp/db-password"
+akeyless usc get --usc-name MVG-demo/vault-usc-payments --secret-id "payments/stripe-key"
 ```
 
 This is the proof that Akeyless is reading live secrets from both Vault clusters through the control plane, without moving them into Akeyless storage.
@@ -325,7 +329,7 @@ This is the proof that Akeyless is reading live secrets from both Vault clusters
 
 ```bash
 akeyless usc create \
-  --usc-name demo-vault-usc-backend \
+  --usc-name MVG-demo/vault-usc-backend \
   --secret-name "myapp/created-from-akeyless" \
   --value "value=hello-from-akeyless"
 
@@ -343,8 +347,8 @@ The Akeyless write went through the Gateway directly into backend Vault's KV eng
 export VAULT_ADDR='http://127.0.0.1:8202'
 vault kv put secret/payments/created-from-vault value="hello-from-payments-vault"
 
-akeyless usc list --usc-name demo-vault-usc-payments
-akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/created-from-vault"
+akeyless usc list --usc-name MVG-demo/vault-usc-payments
+akeyless usc get --usc-name MVG-demo/vault-usc-payments --secret-id "payments/created-from-vault"
 ```
 
 No sync job. No import step. The USC reads directly from Vault, so anything written natively to payments Vault is immediately visible through Akeyless.
@@ -396,11 +400,11 @@ export VAULT_ADDR='http://127.0.0.1:8200'
 ### Chapter 7: Extend MVG to AWS and Kubernetes
 
 ```bash
-akeyless usc list --usc-name demo-aws-usc
-akeyless usc get --usc-name demo-aws-usc --secret-id "demo/mvg/aws/payments-api-key"
+akeyless usc list --usc-name MVG-demo/aws-usc
+akeyless usc get --usc-name MVG-demo/aws-usc --secret-id "demo/mvg/aws/payments-api-key"
 
-akeyless usc list --usc-name demo-k8s-usc
-akeyless usc get --usc-name demo-k8s-usc --secret-id "payments-config"
+akeyless usc list --usc-name MVG-demo/k8s-usc
+akeyless usc get --usc-name MVG-demo/k8s-usc --secret-id "payments-config"
 ```
 
 This is the “true MVG” proof point. The same Akeyless control plane that is governing the two Vault clusters is also governing AWS Secrets Manager and Kubernetes Secrets in the same session.
@@ -415,19 +419,19 @@ akeyless auth \
   --access-key <DENIED_ACCESS_KEY>
 
 # Attempt backend Vault — denied
-akeyless usc get --usc-name demo-vault-usc-backend --secret-id "myapp/db-password"
+akeyless usc get --usc-name MVG-demo/vault-usc-backend --secret-id "myapp/db-password"
 # Expected: Unauthorized
 
 # Attempt payments Vault — also denied (same policy, different cluster)
-akeyless usc get --usc-name demo-vault-usc-payments --secret-id "payments/stripe-key"
+akeyless usc get --usc-name MVG-demo/vault-usc-payments --secret-id "payments/stripe-key"
 # Expected: Unauthorized
 
 # Attempt AWS secret — also denied
-akeyless usc get --usc-name demo-aws-usc --secret-id "demo/mvg/aws/payments-api-key"
+akeyless usc get --usc-name MVG-demo/aws-usc --secret-id "demo/mvg/aws/payments-api-key"
 # Expected: Unauthorized
 
 # Attempt Kubernetes secret — also denied
-akeyless usc get --usc-name demo-k8s-usc --secret-id "payments-config"
+akeyless usc get --usc-name MVG-demo/k8s-usc --secret-id "payments-config"
 # Expected: Unauthorized
 ```
 
@@ -470,14 +474,19 @@ akeyless auth-method delete --name demo-denied-auth --profile demo
 akeyless auth-method delete --name demo-readonly-auth --profile demo
 akeyless delete-role --name demo-denied-role --profile demo
 akeyless delete-role --name demo-readonly-role --profile demo
-akeyless delete-item --name /demo-vault-usc-payments --profile demo
-akeyless delete-item --name /demo-vault-usc-backend --profile demo
-akeyless delete-item --name /demo-aws-usc --profile demo || true
-akeyless delete-item --name /demo-k8s-usc --profile demo || true
-akeyless target delete --name demo-aws-target --force-deletion --profile demo || true
-akeyless target delete --name demo-k8s-target --force-deletion --profile demo || true
-akeyless target delete --name demo-vault-target-payments --force-deletion --profile demo
-akeyless target delete --name demo-vault-target-backend --force-deletion --profile demo
+akeyless delete-item --name /MVG-demo/azure-rotated-api-key --profile demo || true
+akeyless delete-item --name /MVG-demo/aws-rotated-secret --profile demo || true
+akeyless delete-item --name /MVG-demo/vault-rotated-api-key --profile demo || true
+akeyless delete-item --name /MVG-demo/vault-usc-payments --profile demo
+akeyless delete-item --name /MVG-demo/vault-usc-backend --profile demo
+akeyless delete-item --name /MVG-demo/azure-usc --profile demo || true
+akeyless delete-item --name /MVG-demo/aws-usc --profile demo || true
+akeyless delete-item --name /MVG-demo/k8s-usc --profile demo || true
+akeyless target delete --name MVG-demo/azure-target --force-deletion --profile demo || true
+akeyless target delete --name MVG-demo/aws-target --force-deletion --profile demo || true
+akeyless target delete --name MVG-demo/k8s-target --force-deletion --profile demo || true
+akeyless target delete --name MVG-demo/vault-target-payments --force-deletion --profile demo
+akeyless target delete --name MVG-demo/vault-target-backend --force-deletion --profile demo
 ```
 
 ### Remove the Kubernetes Gateway

@@ -210,13 +210,13 @@ Two Vault dev servers running: backend team (port 8200, `secret/myapp/`) and pay
 `kubectl get pods -n akeyless`. One Gateway pod connected to both Vault instances via separate Vault Targets and USCs for demo simplicity. Clarify that production typically uses one Gateway per private location/region.
 
 **Chapter 3 (~1 min 30 sec): Both Vaults from one control plane**
-`akeyless usc list` and `akeyless usc get` against `demo-vault-usc-backend`, then against `demo-vault-usc-payments`. Same CLI, same RBAC, same audit trail — two separate clusters governed simultaneously.
+`akeyless usc list` and `akeyless usc get` against `MVG-demo/vault-usc-backend`, then against `MVG-demo/vault-usc-payments`. Same CLI, same RBAC, same audit trail — two separate clusters governed simultaneously.
 
 **Chapter 4a (~1 min 15 sec): Two-Way Sync  - Akeyless → Vault (backend)**
 `akeyless usc create` on the backend USC. Then `vault kv get` against port 8200 confirms the secret physically exists in backend Vault.
 
 **Chapter 4b (~1 min): Two-Way Sync  - Vault → Akeyless (payments)**
-`vault kv put` natively into payments Vault (port 8202). Then `akeyless usc list` and `akeyless usc get` on `demo-vault-usc-payments` pick it up immediately — no sync job, no polling delay.
+`vault kv put` natively into payments Vault (port 8202). Then `akeyless usc list` and `akeyless usc get` on `MVG-demo/vault-usc-payments` pick it up immediately — no sync job, no polling delay.
 
 **Chapter 5 (~1 min 30 sec): HVP  - vault CLI with zero code changes**
 `export VAULT_ADDR='https://hvp.akeyless.io'`. Same `vault kv get` commands. Same output. Zero application changes. Akeyless is now the backend.
