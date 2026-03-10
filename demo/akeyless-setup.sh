@@ -3,7 +3,8 @@
 #
 # Reconciles all Akeyless demo resources for the multi-vault governance demo.
 # The script is intentionally rerunnable: it resets demo-scoped targets, USCs,
-# roles, and auth methods, then recreates them from the current environment.
+# rotated secrets, roles, and auth methods, then recreates them from the
+# current environment.
 
 set -euo pipefail
 
@@ -12,17 +13,22 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_BACKEND="demo-vault-target-backend"
 TARGET_PAYMENTS="demo-vault-target-payments"
 TARGET_AWS="demo-aws-target"
-TARGET_K8S="demo-k8s-target"
+TARGET_AZURE="demo-azure-target"
 
 USC_BACKEND="demo-vault-usc-backend"
 USC_PAYMENTS="demo-vault-usc-payments"
 USC_AWS="demo-aws-usc"
-USC_K8S="demo-k8s-usc"
+USC_AZURE="demo-azure-usc"
 
 USC_PATH_BACKEND="/demo-vault-usc-backend/*"
 USC_PATH_PAYMENTS="/demo-vault-usc-payments/*"
 USC_PATH_AWS="/demo-aws-usc/*"
-USC_PATH_K8S="/demo-k8s-usc/*"
+USC_PATH_AZURE="/demo-azure-usc/*"
+
+# Rotated secret item names (Akeyless items that manage rotation schedules)
+ROTATED_VAULT="demo-vault-rotated-api-key"
+ROTATED_AWS="demo-aws-rotated-secret"
+ROTATED_AZURE="demo-azure-rotated-api-key"
 
 READONLY_ROLE_NAME="demo-readonly-role"
 READONLY_AUTH_NAME="demo-readonly-auth"
@@ -35,10 +41,12 @@ VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_TOKEN="${VAULT_TOKEN:-root}"
 AKEYLESS_PROFILE="${AKEYLESS_PROFILE:-demo}"
 ENABLE_AWS_DEMO="${ENABLE_AWS_DEMO:-false}"
-ENABLE_K8S_DEMO="${ENABLE_K8S_DEMO:-false}"
+ENABLE_AZURE_DEMO="${ENABLE_AZURE_DEMO:-false}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_USC_PREFIX="${AWS_USC_PREFIX:-demo/mvg/aws/}"
-K8S_NAMESPACE="${K8S_NAMESPACE:-mvg-demo}"
+AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
+AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-payments-api-key}"
+AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}"
 AKEYLESS_DEMO_ENV_FILE="${AKEYLESS_DEMO_ENV_FILE:-$SCRIPT_DIR/.akeyless-demo.env}"
 
 echo "==> Validating environment variables"
@@ -57,10 +65,10 @@ if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
     fi
 fi
 
-if [[ "$ENABLE_K8S_DEMO" == "true" ]]; then
-    if [[ -z "${K8S_CLUSTER_ENDPOINT:-}" || -z "${K8S_CLUSTER_CA_CERT:-}" || -z "${K8S_CLUSTER_TOKEN:-}" ]]; then
-        echo "ERROR: ENABLE_K8S_DEMO=true requires K8S_CLUSTER_ENDPOINT, K8S_CLUSTER_CA_CERT, and K8S_CLUSTER_TOKEN." >&2
-        echo "       Use demo/setup-cloud-and-k8s-demo.sh to generate them." >&2
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
+    if [[ -z "${AZURE_TENANT_ID:-}" || -z "${AZURE_CLIENT_ID:-}" || -z "${AZURE_CLIENT_SECRET:-}" ]]; then
+        echo "ERROR: ENABLE_AZURE_DEMO=true requires AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET." >&2
+        echo "       Use demo/setup-cloud-and-k8s-demo.sh to confirm they are set." >&2
         exit 1
     fi
 fi
@@ -71,7 +79,7 @@ echo "    VAULT_TOKEN          = (set)"
 echo "    AKEYLESS_GATEWAY_URL = $AKEYLESS_GATEWAY_URL"
 echo "    AKEYLESS_PROFILE     = $AKEYLESS_PROFILE"
 echo "    ENABLE_AWS_DEMO      = $ENABLE_AWS_DEMO"
-echo "    ENABLE_K8S_DEMO      = $ENABLE_K8S_DEMO"
+echo "    ENABLE_AZURE_DEMO    = $ENABLE_AZURE_DEMO"
 
 akl() {
     env -u AKEYLESS_GATEWAY_URL akeyless "$@" --profile "$AKEYLESS_PROFILE"
@@ -143,12 +151,17 @@ delete_auth_method_if_exists "$READONLY_AUTH_NAME"
 delete_role_if_exists "$DENIED_ROLE_NAME"
 delete_role_if_exists "$READONLY_ROLE_NAME"
 
-delete_item_if_exists "$USC_K8S"
+# Delete rotated secrets before their targets (avoid dependency conflicts)
+delete_item_if_exists "$ROTATED_AZURE"
+delete_item_if_exists "$ROTATED_AWS"
+delete_item_if_exists "$ROTATED_VAULT"
+
+delete_item_if_exists "$USC_AZURE"
 delete_item_if_exists "$USC_AWS"
 delete_item_if_exists "$USC_PAYMENTS"
 delete_item_if_exists "$USC_BACKEND"
 
-delete_target_if_exists "$TARGET_K8S"
+delete_target_if_exists "$TARGET_AZURE"
 delete_target_if_exists "$TARGET_AWS"
 delete_target_if_exists "$TARGET_PAYMENTS"
 delete_target_if_exists "$TARGET_BACKEND"
@@ -211,22 +224,24 @@ if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
         --use-prefix-as-filter true
 fi
 
-if [[ "$ENABLE_K8S_DEMO" == "true" ]]; then
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
     echo ""
-    echo "==> Creating Kubernetes target: $TARGET_K8S"
-    akl target create k8s \
-        --name "$TARGET_K8S" \
-        --k8s-cluster-endpoint "$K8S_CLUSTER_ENDPOINT" \
-        --k8s-cluster-ca-cert "$K8S_CLUSTER_CA_CERT" \
-        --k8s-cluster-token "$K8S_CLUSTER_TOKEN"
+    echo "==> Creating Azure Key Vault target: $TARGET_AZURE"
+    # NOTE: verify exact flag names against your installed akeyless CLI version
+    # (akeyless target create azure --help)
+    akl target create azure \
+        --name "$TARGET_AZURE" \
+        --azure-tenant-id "$AZURE_TENANT_ID" \
+        --azure-client-id "$AZURE_CLIENT_ID" \
+        --azure-client-secret "$AZURE_CLIENT_SECRET"
 
     echo ""
-    echo "==> Creating Kubernetes USC: $USC_K8S"
+    echo "==> Creating Azure Key Vault USC: $USC_AZURE"
     akl create-usc \
-        --name "$USC_K8S" \
-        --target-to-associate "$TARGET_K8S" \
+        --name "$USC_AZURE" \
+        --target-to-associate "$TARGET_AZURE" \
         --gateway-url "$AKEYLESS_GATEWAY_URL" \
-        --k8s-namespace "$K8S_NAMESPACE"
+        --azure-vault-name "$AZURE_VAULT_NAME"
 fi
 
 echo ""
@@ -246,10 +261,13 @@ if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
     fi
 fi
 
-if [[ "$ENABLE_K8S_DEMO" == "true" ]]; then
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
     echo ""
-    echo "==> Verifying USC '$USC_K8S'..."
-    akl usc list --usc-name "$USC_K8S"
+    echo "==> Verifying USC '$USC_AZURE'..."
+    if ! akl usc list --usc-name "$USC_AZURE"; then
+        echo "WARNING: Azure USC '$USC_AZURE' was created, but listing secrets failed." >&2
+        echo "         This usually means the gateway cannot reach Azure Key Vault yet." >&2
+    fi
 fi
 
 echo ""
@@ -260,8 +278,16 @@ akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "$USC_PATH_PAYMENTS" 
 if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
     akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "$USC_PATH_AWS" --capability read --capability list
 fi
-if [[ "$ENABLE_K8S_DEMO" == "true" ]]; then
-    akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "$USC_PATH_K8S" --capability read --capability list
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
+    akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "$USC_PATH_AZURE" --capability read --capability list
+fi
+# Allow the readonly identity to read rotated secret values
+akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "/$ROTATED_VAULT" --capability read
+if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
+    akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "/$ROTATED_AWS" --capability read
+fi
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
+    akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "/$ROTATED_AZURE" --capability read
 fi
 
 echo ""
@@ -272,8 +298,49 @@ akl set-role-rule --role-name "$DENIED_ROLE_NAME" --path "$USC_PATH_PAYMENTS" --
 if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
     akl set-role-rule --role-name "$DENIED_ROLE_NAME" --path "$USC_PATH_AWS" --capability deny
 fi
-if [[ "$ENABLE_K8S_DEMO" == "true" ]]; then
-    akl set-role-rule --role-name "$DENIED_ROLE_NAME" --path "$USC_PATH_K8S" --capability deny
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
+    akl set-role-rule --role-name "$DENIED_ROLE_NAME" --path "$USC_PATH_AZURE" --capability deny
+fi
+
+echo ""
+echo "==> Creating rotated secret for HashiCorp Vault (backend): $ROTATED_VAULT"
+# Akeyless rotates the api-key in the backend Vault KV on a 30-day schedule.
+# On each rotation, Akeyless generates a new value and writes it back through
+# the Gateway — no manual rotation scripts required.
+# NOTE: verify --rotator-type and path flags against your akeyless CLI version.
+akl create-rotated-secret \
+    --name "$ROTATED_VAULT" \
+    --target-name "$TARGET_BACKEND" \
+    --rotator-type api-key \
+    --rotation-interval 30 \
+    --auto-rotate true \
+    --rotated-username "secret/myapp/api-key" \
+    --tag "compliance=pci-dss" --tag "demo=mvg"
+
+if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
+    echo ""
+    echo "==> Creating rotated secret for AWS Secrets Manager: $ROTATED_AWS"
+    akl create-rotated-secret \
+        --name "$ROTATED_AWS" \
+        --target-name "$TARGET_AWS" \
+        --rotator-type aws-sm \
+        --rotation-interval 30 \
+        --auto-rotate true \
+        --rotated-username "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+        --tag "compliance=pci-dss" --tag "demo=mvg"
+fi
+
+if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
+    echo ""
+    echo "==> Creating rotated secret for Azure Key Vault: $ROTATED_AZURE"
+    akl create-rotated-secret \
+        --name "$ROTATED_AZURE" \
+        --target-name "$TARGET_AZURE" \
+        --rotator-type azure-keyvault \
+        --rotation-interval 30 \
+        --auto-rotate true \
+        --rotated-username "$AZURE_ROTATED_SECRET_NAME" \
+        --tag "compliance=pci-dss" --tag "demo=mvg"
 fi
 
 echo ""
@@ -296,10 +363,14 @@ export AKEYLESS_GW='$AKEYLESS_GATEWAY_URL'
 export USC_BACKEND='$USC_BACKEND'
 export USC_PAYMENTS='$USC_PAYMENTS'
 export USC_AWS='$USC_AWS'
-export USC_K8S='$USC_K8S'
+export USC_AZURE='$USC_AZURE'
 export AWS_DEMO_SECRET_NAME='${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}'
-export K8S_NAMESPACE='$K8S_NAMESPACE'
-export K8S_DEMO_SECRET_NAME='${K8S_DEMO_SECRET_NAME:-payments-config}'
+export AZURE_VAULT_NAME='$AZURE_VAULT_NAME'
+export AZURE_STATIC_SECRET_NAME='${AZURE_STATIC_SECRET_NAME:-payments-api-key}'
+export AZURE_ROTATED_SECRET_NAME='${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}'
+export ROTATED_VAULT='$ROTATED_VAULT'
+export ROTATED_AWS='$ROTATED_AWS'
+export ROTATED_AZURE='$ROTATED_AZURE'
 export READONLY_ACCESS_ID='$readonly_access_id'
 export READONLY_ACCESS_KEY='$readonly_access_key'
 export DENIED_ACCESS_ID='$denied_access_id'

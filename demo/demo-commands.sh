@@ -13,12 +13,16 @@
 # export USC_BACKEND='demo-vault-usc-backend'
 # export USC_PAYMENTS='demo-vault-usc-payments'
 # export USC_AWS='demo-aws-usc'
-# export USC_K8S='demo-k8s-usc'
+# export USC_AZURE='demo-azure-usc'
 # export AKEYLESS_GW='https://192.168.1.82:8000'    # your Gateway URL
 # export AKEYLESS_PROFILE='demo'                     # akeyless CLI profile name
 # export AWS_DEMO_SECRET_NAME='demo/mvg/aws/payments-api-key'
-# export K8S_DEMO_SECRET_NAME='payments-config'
-# export K8S_NAMESPACE='mvg-demo'
+# export AZURE_VAULT_NAME='mvg-demo-kv'
+# export AZURE_STATIC_SECRET_NAME='payments-api-key'
+# export AZURE_ROTATED_SECRET_NAME='demo-azure-rotated-api-key'
+# export ROTATED_VAULT='demo-vault-rotated-api-key'
+# export ROTATED_AWS='demo-aws-rotated-secret'
+# export ROTATED_AZURE='demo-azure-rotated-api-key'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,9 +173,9 @@ export VAULT_ADDR="$ORIGINAL_VAULT_ADDR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAPTER 7: Extend MVG to AWS Secrets Manager and Kubernetes Secrets
+# CHAPTER 7: Extend MVG to AWS Secrets Manager and Azure Key Vault
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 7: Extend MVG to AWS and Kubernetes secrets ---"
+echo "--- Chapter 7: Extend MVG to AWS Secrets Manager and Azure Key Vault ---"
 
 # AWS Secrets Manager via USC-backed MVG
 akeyless usc list \
@@ -183,21 +187,73 @@ akeyless usc get \
   --secret-id "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
-# Kubernetes Secrets via USC-backed MVG
+# Azure Key Vault via USC-backed MVG
 akeyless usc list \
-  --usc-name "${USC_K8S:-demo-k8s-usc}" \
+  --usc-name "${USC_AZURE:-demo-azure-usc}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
 akeyless usc get \
-  --usc-name "${USC_K8S:-demo-k8s-usc}" \
-  --secret-id "${K8S_DEMO_SECRET_NAME:-payments-config}" \
+  --usc-name "${USC_AZURE:-demo-azure-usc}" \
+  --secret-id "${AZURE_STATIC_SECRET_NAME:-payments-api-key}" \
   --profile "${AKEYLESS_PROFILE:-demo}"
+
+# Key point: HashiCorp Vault, AWS Secrets Manager, and Azure Key Vault — all
+# governed from one Akeyless control plane with one RBAC model and one audit log.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAPTER 7b: Automated Secret Rotation — PCI-DSS / SOC2 compliance story
+# ─────────────────────────────────────────────────────────────────────────────
+echo "--- Chapter 7b: Akeyless auto-rotates secrets back into each external vault ---"
+
+# ── HashiCorp Vault rotation ─────────────────────────────────────────────────
+export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
+
+echo "==> Current value in HashiCorp Vault (before rotation):"
+vault kv get -field=api_key secret/myapp/api-key
+
+# Trigger Akeyless to rotate the Vault secret immediately.
+# Akeyless generates a new value and writes it back through the Gateway.
+akeyless rotated-secret set-next-rotation-date \
+  --name "${ROTATED_VAULT:-demo-vault-rotated-api-key}" \
+  --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+sleep 10   # allow Gateway to execute the rotation
+
+echo "==> Value in HashiCorp Vault AFTER Akeyless rotation:"
+vault kv get -field=api_key secret/myapp/api-key
+# Output: a new value — Akeyless wrote it back. The old value is gone.
+
+# ── AWS Secrets Manager rotation ─────────────────────────────────────────────
+akeyless rotated-secret set-next-rotation-date \
+  --name "${ROTATED_AWS:-demo-aws-rotated-secret}" \
+  --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+echo "==> (AWS rotation triggered — verify in AWS Console or:"
+echo "    aws secretsmanager get-secret-value --secret-id ${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key} --region ${AWS_REGION:-us-east-2})"
+
+# ── Azure Key Vault rotation ─────────────────────────────────────────────────
+akeyless rotated-secret set-next-rotation-date \
+  --name "${ROTATED_AZURE:-demo-azure-rotated-api-key}" \
+  --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+echo "==> (Azure rotation triggered — verify in Azure Portal or:"
+echo "    az keyvault secret show --vault-name ${AZURE_VAULT_NAME:-mvg-demo-kv} --name ${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key})"
+
+# Key point: Akeyless owns the rotation schedule (30-day default, configurable).
+# It writes the new value back to HashiCorp Vault, AWS SM, and Azure KV through
+# the Gateway. No per-vault rotation scripts. No Lambda. No cron jobs.
+# One schedule governs all three backends — and every rotation event is logged
+# in the same Akeyless audit trail that covers all reads and denials.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAPTER 8: RBAC — single policy denies access across all governed backends
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 8: One RBAC deny blocks access across Vault, AWS, and Kubernetes ---"
+echo "--- Chapter 8: One RBAC deny blocks access across Vault, AWS, and Azure ---"
 
 # Get a token for the denied identity (replace with actual values from akeyless-setup.sh output)
 DENIED_TOKEN=$(akeyless auth \
@@ -230,10 +286,10 @@ akeyless usc get \
   --token "$DENIED_TOKEN"
 # Expected: 403 Forbidden / no read permission
 
-# Attempt access to Kubernetes secret — also denied
+# Attempt access to Azure Key Vault secret — also denied
 akeyless usc get \
-  --usc-name "${USC_K8S:-demo-k8s-usc}" \
-  --secret-id "${K8S_DEMO_SECRET_NAME:-payments-config}" \
+  --usc-name "${USC_AZURE:-demo-azure-usc}" \
+  --secret-id "${AZURE_STATIC_SECRET_NAME:-payments-api-key}" \
   --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
   --token "$DENIED_TOKEN"
 # Expected: 403 Forbidden / no read permission
@@ -242,10 +298,12 @@ akeyless usc get \
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAPTER 9: Centralized audit trail — every backend, one log
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 9: One audit trail covers Vault, AWS, and Kubernetes ---"
+echo "--- Chapter 9: One audit trail covers Vault, AWS, Azure, and all rotation events ---"
 
 # Every operation from this demo — Vault MVG reads/writes, HVP calls, AWS and
-# Kubernetes reads, and all RBAC denials — is in a single Akeyless audit log.
+# Azure reads, rotation events, and all RBAC denials — is in a single Akeyless
+# audit log.
 echo "Open: https://console.akeyless.io"
-echo "Navigate: Logs → filter by your Access ID or by action (get, list, create)"
-echo "Vault, AWS, and Kubernetes USC connectors appear in the same log."
+echo "Navigate: Logs → filter by your Access ID or by action (get, list, create, rotate)"
+echo "Vault, AWS, and Azure Key Vault USC connectors appear in the same log."
+echo "Rotation events show the secret name, timestamp, and triggering identity."

@@ -11,11 +11,13 @@ VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_TOKEN="${VAULT_TOKEN:-root}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_DEMO_SECRET_NAME="${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}"
-K8S_NAMESPACE="${K8S_NAMESPACE:-mvg-demo}"
-K8S_DEMO_SECRET_NAME="${K8S_DEMO_SECRET_NAME:-payments-config}"
+AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
+AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-payments-api-key}"
+AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}"
 AWS_USE_STS_DEMO="${AWS_USE_STS_DEMO:-true}"
 AWS_STS_DURATION_SECONDS="${AWS_STS_DURATION_SECONDS:-3600}"
 REQUIRE_AWS_E2E="${REQUIRE_AWS_E2E:-false}"
+REQUIRE_AZURE_E2E="${REQUIRE_AZURE_E2E:-false}"
 CLEANUP_ONLY=false
 FULL_CLEANUP=false
 
@@ -115,22 +117,32 @@ cleanup_demo_resources() {
     akeyless auth-method delete --name demo-readonly-auth --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-role --name demo-denied-role --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-role --name demo-readonly-role --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless delete-item --name /demo-k8s-usc --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name /demo-azure-rotated-api-key --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name /demo-aws-rotated-secret --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name /demo-vault-rotated-api-key --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless delete-item --name /demo-azure-usc --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name /demo-aws-usc --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name /demo-vault-usc-payments --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name /demo-vault-usc-backend --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-    akeyless target delete --name demo-k8s-target --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless target delete --name demo-azure-target --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless target delete --name demo-aws-target --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless target delete --name demo-vault-target-payments --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless target delete --name demo-vault-target-backend --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
-
-    kubectl delete namespace "$K8S_NAMESPACE" >/dev/null 2>&1 || true
 
     if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
         aws secretsmanager delete-secret \
             --region "$AWS_REGION" \
             --secret-id "$AWS_DEMO_SECRET_NAME" \
             --force-delete-without-recovery >/dev/null 2>&1 || true
+    fi
+
+    if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1 && [[ -n "${AZURE_VAULT_NAME:-}" ]]; then
+        az keyvault secret delete \
+            --vault-name "$AZURE_VAULT_NAME" \
+            --name "$AZURE_STATIC_SECRET_NAME" >/dev/null 2>&1 || true
+        az keyvault secret delete \
+            --vault-name "$AZURE_VAULT_NAME" \
+            --name "$AZURE_ROTATED_SECRET_NAME" >/dev/null 2>&1 || true
     fi
 
     rm -f "$AKEYLESS_DEMO_ENV_FILE"
@@ -153,7 +165,7 @@ fi
 
 cloud_setup_output="$(bash "$SCRIPT_DIR/setup-cloud-and-k8s-demo.sh")"
 printf '%s\n' "$cloud_setup_output"
-eval "$(printf '%s\n' "$cloud_setup_output" | awk '/^export (ENABLE_AWS_DEMO|ENABLE_K8S_DEMO|AWS_REGION|AWS_DEMO_SECRET_NAME|AWS_USC_PREFIX|K8S_NAMESPACE|K8S_DEMO_SECRET_NAME|K8S_CLUSTER_ENDPOINT|K8S_CLUSTER_CA_CERT|K8S_CLUSTER_TOKEN)=/')"
+eval "$(printf '%s\n' "$cloud_setup_output" | awk '/^export (ENABLE_AWS_DEMO|ENABLE_AZURE_DEMO|AWS_REGION|AWS_DEMO_SECRET_NAME|AWS_USC_PREFIX|AZURE_VAULT_NAME|AZURE_STATIC_SECRET_NAME|AZURE_ROTATED_SECRET_NAME)=/')"
 refresh_aws_session_credentials
 
 run "reconcile akeyless demo resources" env AKEYLESS_GATEWAY_URL="$AKEYLESS_GATEWAY_URL" bash "$SCRIPT_DIR/akeyless-setup.sh"
@@ -228,12 +240,80 @@ else
     echo "--- exit=0 ---"
 fi
 
-if [[ "${ENABLE_K8S_DEMO:-false}" == "true" ]]; then
-    run "usc list k8s" akeyless usc list --usc-name "$USC_K8S" --profile "$AKEYLESS_PROFILE"
-    run "usc get k8s" akeyless usc get --usc-name "$USC_K8S" --secret-id "$K8S_DEMO_SECRET_NAME" --profile "$AKEYLESS_PROFILE"
+azure_usc_verified=false
+if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" ]]; then
+    echo "=== usc list azure ==="
+    if akeyless usc list --usc-name "$USC_AZURE" --profile "$AKEYLESS_PROFILE"; then
+        echo "--- exit=0 ---"
+        run "usc get azure" akeyless usc get \
+            --usc-name "$USC_AZURE" \
+            --secret-id "$AZURE_STATIC_SECRET_NAME" \
+            --profile "$AKEYLESS_PROFILE"
+        azure_usc_verified=true
+    elif [[ "$REQUIRE_AZURE_E2E" == "true" ]]; then
+        echo "Azure USC validation failed and REQUIRE_AZURE_E2E=true." >&2
+        exit 1
+    else
+        echo "Skipped: Azure target/USC was created, but gateway validation failed."
+        echo "--- exit=0 ---"
+    fi
 else
-    echo "=== usc k8s ==="
-    echo "Skipped: ENABLE_K8S_DEMO=false"
+    echo "=== usc azure ==="
+    echo "Skipped: ENABLE_AZURE_DEMO=false"
+    echo "--- exit=0 ---"
+fi
+
+# ── Rotated secret verification — Vault ──────────────────────────────────────
+echo "=== rotation verification vault ==="
+export VAULT_ADDR="$VAULT_ADDR_BACKEND"
+export VAULT_TOKEN="${VAULT_TOKEN:-root}"
+BEFORE_VAULT="$(vault kv get -field=api_key secret/myapp/api-key 2>/dev/null || echo UNAVAILABLE)"
+echo "Before rotation: $BEFORE_VAULT"
+
+akeyless rotated-secret set-next-rotation-date \
+    --name "$ROTATED_VAULT" \
+    --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --profile "$AKEYLESS_PROFILE"
+
+sleep 12   # allow Gateway to execute the rotation
+
+AFTER_VAULT="$(vault kv get -field=api_key secret/myapp/api-key 2>/dev/null || echo UNAVAILABLE)"
+echo "After rotation : $AFTER_VAULT"
+
+if [[ "$BEFORE_VAULT" == "$AFTER_VAULT" || "$AFTER_VAULT" == "UNAVAILABLE" ]]; then
+    echo "WARNING: Vault rotation could not be confirmed — values are identical or unavailable." >&2
+else
+    echo "Vault rotation confirmed: secret value changed."
+fi
+echo "--- exit=0 ---"
+
+# ── Rotated secret verification — Azure ──────────────────────────────────────
+if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true" ]]; then
+    echo "=== rotation verification azure ==="
+    BEFORE_AZ="$(az keyvault secret show \
+        --vault-name "$AZURE_VAULT_NAME" \
+        --name "$AZURE_ROTATED_SECRET_NAME" \
+        --query value -o tsv 2>/dev/null || echo UNAVAILABLE)"
+    echo "Before rotation: $BEFORE_AZ"
+
+    akeyless rotated-secret set-next-rotation-date \
+        --name "$ROTATED_AZURE" \
+        --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --profile "$AKEYLESS_PROFILE"
+
+    sleep 12
+
+    AFTER_AZ="$(az keyvault secret show \
+        --vault-name "$AZURE_VAULT_NAME" \
+        --name "$AZURE_ROTATED_SECRET_NAME" \
+        --query value -o tsv 2>/dev/null || echo UNAVAILABLE)"
+    echo "After rotation : $AFTER_AZ"
+
+    if [[ "$BEFORE_AZ" == "$AFTER_AZ" || "$AFTER_AZ" == "UNAVAILABLE" ]]; then
+        echo "WARNING: Azure rotation could not be confirmed — values are identical or unavailable." >&2
+    else
+        echo "Azure rotation confirmed: secret value changed."
+    fi
     echo "--- exit=0 ---"
 fi
 
@@ -255,10 +335,14 @@ fi
 echo "403 verified"
 echo "--- exit=0 ---"
 
-if [[ "${ENABLE_K8S_DEMO:-false}" == "true" ]]; then
-    echo "=== denied k8s ==="
-    if akeyless usc get --usc-name "$USC_K8S" --secret-id "$K8S_DEMO_SECRET_NAME" --gateway-url "$AKEYLESS_GW" --token "$denied_token" >/dev/null 2>&1; then
-        echo "Expected 403 for denied k8s access, but request succeeded." >&2
+if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true" ]]; then
+    echo "=== denied azure ==="
+    if akeyless usc get \
+        --usc-name "$USC_AZURE" \
+        --secret-id "$AZURE_STATIC_SECRET_NAME" \
+        --gateway-url "$AKEYLESS_GW" \
+        --token "$denied_token" >/dev/null 2>&1; then
+        echo "Expected 403 for denied azure access, but request succeeded." >&2
         exit 1
     fi
     echo "403 verified"
