@@ -205,7 +205,7 @@ akeyless usc get \
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAPTER 7b: Automated Secret Rotation — PCI-DSS / SOC2 compliance story
 # ─────────────────────────────────────────────────────────────────────────────
-echo "--- Chapter 7b: Akeyless auto-rotates secrets back into each external vault ---"
+echo "--- Chapter 7b: Akeyless updates one source secret and syncs it into each external vault ---"
 
 # ── HashiCorp Vault rotation ─────────────────────────────────────────────────
 export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
@@ -213,42 +213,62 @@ export VAULT_ADDR="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 echo "==> Current value in HashiCorp Vault (before rotation):"
 vault kv get -field=api_key secret/myapp/api-key
 
-# Trigger Akeyless to rotate the Vault secret immediately.
-# Akeyless generates a new value and writes it back through the Gateway.
-akeyless rotated-secret set-next-rotation-date \
+# Update the Akeyless source secret, then sync it into Vault through the USC.
+akeyless update-secret-val \
   --name "${ROTATED_VAULT:-MVG-demo/vault-rotated-api-key}" \
-  --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --value "{\"api_key\":\"vault-rotated-$(date +%s)\"}" \
+  --format json \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
-sleep 10   # allow Gateway to execute the rotation
+akeyless static-secret-sync \
+  --name "${ROTATED_VAULT:-MVG-demo/vault-rotated-api-key}" \
+  --usc-name "${USC_BACKEND:-MVG-demo/vault-usc-backend}" \
+  --remote-secret-name "secret/myapp/api-key" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+sleep 3
 
 echo "==> Value in HashiCorp Vault AFTER Akeyless rotation:"
 vault kv get -field=api_key secret/myapp/api-key
-# Output: a new value — Akeyless wrote it back. The old value is gone.
+# Output: a new value — Akeyless synced it back. The old value is gone.
 
 # ── AWS Secrets Manager rotation ─────────────────────────────────────────────
-akeyless rotated-secret set-next-rotation-date \
+akeyless update-secret-val \
   --name "${ROTATED_AWS:-MVG-demo/aws-rotated-secret}" \
-  --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --value "{\"api_key\":\"aws-rotated-$(date +%s)\"}" \
+  --format json \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
-echo "==> (AWS rotation triggered — verify in AWS Console or:"
+akeyless static-secret-sync \
+  --name "${ROTATED_AWS:-MVG-demo/aws-rotated-secret}" \
+  --usc-name "${USC_AWS:-MVG-demo/aws-usc}" \
+  --remote-secret-name "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+echo "==> (AWS sync triggered — verify in AWS Console or:"
 echo "    aws secretsmanager get-secret-value --secret-id ${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key} --region ${AWS_REGION:-us-east-2})"
 
 # ── Azure Key Vault rotation ─────────────────────────────────────────────────
-akeyless rotated-secret set-next-rotation-date \
+akeyless update-secret-val \
   --name "${ROTATED_AZURE:-MVG-demo/azure-rotated-api-key}" \
-  --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --value "azure-rotated-$(date +%s)" \
   --profile "${AKEYLESS_PROFILE:-demo}"
 
-echo "==> (Azure rotation triggered — verify in Azure Portal or:"
+akeyless static-secret-sync \
+  --name "${ROTATED_AZURE:-MVG-demo/azure-rotated-api-key}" \
+  --usc-name "${USC_AZURE:-MVG-demo/azure-usc}" \
+  --remote-secret-name "${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+echo "==> (Azure sync triggered — verify in Azure Portal or:"
 echo "    az keyvault secret show --vault-name ${AZURE_VAULT_NAME:-mvg-demo-kv} --name ${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key})"
 
-# Key point: Akeyless owns the rotation schedule (30-day default, configurable).
-# It writes the new value back to HashiCorp Vault, AWS SM, and Azure KV through
-# the Gateway. No per-vault rotation scripts. No Lambda. No cron jobs.
-# One schedule governs all three backends — and every rotation event is logged
-# in the same Akeyless audit trail that covers all reads and denials.
+# Key point: Akeyless owns the source secret and can push the current value back
+# to HashiCorp Vault, AWS SM, and Azure KV through the Gateway. One update point,
+# three governed backends, and one audit trail for every read, denial, and sync.
 
 
 # ─────────────────────────────────────────────────────────────────────────────

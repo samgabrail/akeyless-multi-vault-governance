@@ -444,44 +444,64 @@ Terminal showing:
 vault kv get -field=api_key secret/myapp/api-key
 # Output: akl-demo-api-key-12345   (the original seeded value)
 
-# Trigger Akeyless to rotate the secret now
-akeyless rotated-secret set-next-rotation-date \
+# Update the Akeyless source secret, then sync it into Vault
+akeyless update-secret-val \
   --name MVG-demo/vault-rotated-api-key \
-  --next-rotation-date "2026-03-10T12:00:00Z"
+  --value '{"api_key":"vault-rotated-20260310"}' \
+  --format json
 
-# After rotation — Akeyless wrote the new value back to Vault
+akeyless static-secret-sync \
+  --name MVG-demo/vault-rotated-api-key \
+  --usc-name MVG-demo/vault-usc-backend \
+  --remote-secret-name "secret/myapp/api-key" \
+  --gateway-url https://<gateway>:8000
+
+# After sync — Akeyless wrote the new value back to Vault
 vault kv get -field=api_key secret/myapp/api-key
 # Output: <newly generated value>   (different from before)
 
-# Same rotation trigger for AWS and Azure
-akeyless rotated-secret set-next-rotation-date \
+# Same Akeyless update + sync flow for AWS and Azure
+akeyless update-secret-val \
   --name MVG-demo/aws-rotated-secret \
-  --next-rotation-date "2026-03-10T12:00:00Z"
+  --value '{"api_key":"aws-rotated-20260310"}' \
+  --format json
 
-akeyless rotated-secret set-next-rotation-date \
+akeyless static-secret-sync \
+  --name MVG-demo/aws-rotated-secret \
+  --usc-name MVG-demo/aws-usc \
+  --remote-secret-name "demo/mvg/aws/payments-api-key" \
+  --gateway-url https://<gateway>:8000
+
+akeyless update-secret-val \
   --name MVG-demo/azure-rotated-api-key \
-  --next-rotation-date "2026-03-10T12:00:00Z"
+  --value "azure-rotated-20260310"
+
+akeyless static-secret-sync \
+  --name MVG-demo/azure-rotated-api-key \
+  --usc-name MVG-demo/azure-usc \
+  --remote-secret-name "demo-azure-rotated-api-key" \
+  --gateway-url https://<gateway>:8000
 ```
 
 Then show the Azure Key Vault secret value before and after.
 
 **Narration:**
 
-Here is the feature that gets the most traction with compliance teams — PCI-DSS, SOC 2, ISO 27001 all require periodic rotation of service credentials. In a multi-vault environment, that traditionally means custom rotation scripts per vault type, each with its own scheduling, error handling, and audit trail. It is an operational nightmare at any scale.
+Here is the feature that gets the most traction with compliance teams — PCI-DSS, SOC 2, ISO 27001 all require secret updates that can be pushed consistently into every backend teams rely on. In a multi-vault environment, that traditionally means custom update scripts per vault type, each with its own scheduling, error handling, and audit trail. It is an operational nightmare at any scale.
 
-Akeyless solves this with first-class rotated secrets. Let me show you what that looks like in practice.
+Akeyless solves this by owning the source secret centrally, then syncing the current value back into every governed backend. Let me show you what that looks like in practice.
 
 Here is the current value of `api-key` in our backend HashiCorp Vault — the one we seeded at the start of the demo. I'm going to ask Akeyless to rotate it now.
 
-`akeyless rotated-secret set-next-rotation-date` on `MVG-demo/vault-rotated-api-key`. Rotation triggered.
+I update the Akeyless source secret at `MVG-demo/vault-rotated-api-key`, then sync it through the Vault USC.
 
 Now I'll go back to the Vault CLI and read the same secret.
 
-The value changed. Akeyless generated a new credential, wrote it directly into the Vault KV path through the Gateway, and the old value is gone. No rotation script. No Lambda. No cron job with `vault write`. Akeyless owns the entire rotation lifecycle for this secret.
+The value changed. Akeyless wrote the new secret back into the Vault KV path through the Gateway, and the old value is gone. No rotation script in Vault. No cron job with `vault write`. Akeyless owns the secret value and the sync path.
 
-Now I'll trigger rotation for the AWS Secrets Manager secret — same command, different rotated secret object. And the Azure Key Vault secret.
+Now I'll do the same update and sync for the AWS Secrets Manager secret and the Azure Key Vault secret.
 
-The same mechanism governs all three backends. One rotation schedule, configured once in Akeyless, applied to every secret you associate with it. When a secret rotates, the new value lands in the external vault immediately — applications reading from Vault, AWS SM, or Azure KV directly get the updated value on their next read. USC also returns the updated value.
+The same mechanism governs all three backends. One source secret in Akeyless, synced into every external vault you associate with it. When the source value changes, the new value lands in HashiCorp Vault, AWS Secrets Manager, and Azure Key Vault immediately. USC also returns the updated value.
 
 Let me put a real number on this. A financial services customer used this pattern to manage rotation across thousands of Azure Key Vault secrets that their services depend on for compliance. Previously that required a fleet of Azure Functions running on a custom schedule with hand-rolled error handling and a separate audit log. MVG replaced the entire fleet with rotation policies declared once in Akeyless, applied to every secret, with every rotation event in the same audit trail as every read and every denial.
 

@@ -87,9 +87,34 @@ akl() {
     env -u AKEYLESS_GATEWAY_URL akeyless "$@" --profile "$AKEYLESS_PROFILE"
 }
 
+azure_cli_available() {
+    if [[ -n "${AZ_CLI_BIN:-}" ]] && "$AZ_CLI_BIN" account show >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
+azure_cli() {
+    if [[ -n "${AZ_CLI_BIN:-}" ]]; then
+        "$AZ_CLI_BIN" "$@"
+    else
+        az "$@"
+    fi
+}
+
 json_field() {
     local field="$1"
     python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$field"
+}
+
+secret_exists() {
+    local name="$1"
+    akl describe-item --name "/$name" >/dev/null 2>&1
 }
 
 item_exists() {
@@ -241,7 +266,7 @@ if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
         --name "$USC_AZURE" \
         --target-to-associate "$TARGET_AZURE" \
         --gateway-url "$AKEYLESS_GATEWAY_URL" \
-        --azure-vault-name "$AZURE_VAULT_NAME"
+        --azure-kv-name "$AZURE_VAULT_NAME"
 fi
 
 echo ""
@@ -303,44 +328,50 @@ if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
 fi
 
 echo ""
-echo "==> Creating rotated secret for HashiCorp Vault (backend): $ROTATED_VAULT"
-# Akeyless rotates the api-key in the backend Vault KV on a 30-day schedule.
-# On each rotation, Akeyless generates a new value and writes it back through
-# the Gateway — no manual rotation scripts required.
-# NOTE: verify --rotator-type and path flags against your akeyless CLI version.
-akl create-rotated-secret \
+echo "==> Creating Akeyless-owned sync source for HashiCorp Vault (backend): $ROTATED_VAULT"
+akl create-secret \
     --name "$ROTATED_VAULT" \
-    --target-name "$TARGET_BACKEND" \
-    --rotator-type api-key \
-    --rotation-interval 30 \
-    --auto-rotate true \
-    --rotated-username "secret/myapp/api-key" \
+    --value '{"api_key":"akl-demo-api-key-rotated-v1"}' \
+    --format json \
     --tag "compliance=pci-dss" --tag "demo=mvg"
+akl static-secret-sync \
+    --name "$ROTATED_VAULT" \
+    --usc-name "$USC_BACKEND" \
+    --remote-secret-name "secret/myapp/api-key" \
+    --gateway-url "$AKEYLESS_GATEWAY_URL"
 
 if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
     echo ""
-    echo "==> Creating rotated secret for AWS Secrets Manager: $ROTATED_AWS"
-    akl create-rotated-secret \
+    echo "==> Creating Akeyless-owned sync source for AWS Secrets Manager: $ROTATED_AWS"
+    akl create-secret \
         --name "$ROTATED_AWS" \
-        --target-name "$TARGET_AWS" \
-        --rotator-type aws-sm \
-        --rotation-interval 30 \
-        --auto-rotate true \
-        --rotated-username "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+        --value '{"api_key":"aws-demo-payments-key-rotated-v1"}' \
+        --format json \
         --tag "compliance=pci-dss" --tag "demo=mvg"
+    akl static-secret-sync \
+        --name "$ROTATED_AWS" \
+        --usc-name "$USC_AWS" \
+        --remote-secret-name "${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}" \
+        --gateway-url "$AKEYLESS_GATEWAY_URL"
 fi
 
 if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
     echo ""
-    echo "==> Creating rotated secret for Azure Key Vault: $ROTATED_AZURE"
-    akl create-rotated-secret \
+    echo "==> Creating Akeyless-owned sync source for Azure Key Vault: $ROTATED_AZURE"
+    if azure_cli_available; then
+        azure_cli keyvault secret purge \
+            --vault-name "$AZURE_VAULT_NAME" \
+            --name "$AZURE_ROTATED_SECRET_NAME" >/dev/null 2>&1 || true
+    fi
+    akl create-secret \
         --name "$ROTATED_AZURE" \
-        --target-name "$TARGET_AZURE" \
-        --rotator-type azure-keyvault \
-        --rotation-interval 30 \
-        --auto-rotate true \
-        --rotated-username "$AZURE_ROTATED_SECRET_NAME" \
+        --value 'azure-demo-rotated-value-v1' \
         --tag "compliance=pci-dss" --tag "demo=mvg"
+    akl static-secret-sync \
+        --name "$ROTATED_AZURE" \
+        --usc-name "$USC_AZURE" \
+        --remote-secret-name "$AZURE_ROTATED_SECRET_NAME" \
+        --gateway-url "$AKEYLESS_GATEWAY_URL"
 fi
 
 echo ""

@@ -7,6 +7,8 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 AKEYLESS_PROFILE="${AKEYLESS_PROFILE:-demo}"
 AKEYLESS_DEMO_FOLDER="${AKEYLESS_DEMO_FOLDER:-MVG-demo}"
 AKEYLESS_DEMO_ENV_FILE="${AKEYLESS_DEMO_ENV_FILE:-$SCRIPT_DIR/.akeyless-demo.env}"
+LOCAL_VAULT_ADDR_BACKEND="${LOCAL_VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
+LOCAL_VAULT_ADDR_PAYMENTS="${LOCAL_VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_ADDR_BACKEND="${VAULT_ADDR_BACKEND:-http://127.0.0.1:8200}"
 VAULT_ADDR_PAYMENTS="${VAULT_ADDR_PAYMENTS:-http://127.0.0.1:8202}"
 VAULT_TOKEN="${VAULT_TOKEN:-root}"
@@ -96,6 +98,18 @@ run() {
     echo "=== $name ==="
     "$@"
     echo "--- exit=0 ---"
+}
+
+rotate_synced_secret() {
+    local name="$1"
+    local new_value="$2"
+    local format="${3:-text}"
+
+    if [[ "$format" == "json" ]]; then
+        akeyless update-secret-val --name "$name" --value "$new_value" --format json --profile "$AKEYLESS_PROFILE"
+    else
+        akeyless update-secret-val --name "$name" --value "$new_value" --profile "$AKEYLESS_PROFILE"
+    fi
 }
 
 profile_field() {
@@ -195,6 +209,12 @@ cleanup_demo_resources() {
         az_cmd keyvault secret delete \
             --vault-name "$AZURE_VAULT_NAME" \
             --name "$AZURE_ROTATED_SECRET_NAME" >/dev/null 2>&1 || true
+        az_cmd keyvault secret purge \
+            --vault-name "$AZURE_VAULT_NAME" \
+            --name "$AZURE_STATIC_SECRET_NAME" >/dev/null 2>&1 || true
+        az_cmd keyvault secret purge \
+            --vault-name "$AZURE_VAULT_NAME" \
+            --name "$AZURE_ROTATED_SECRET_NAME" >/dev/null 2>&1 || true
     fi
 
     rm -f "$AKEYLESS_DEMO_ENV_FILE"
@@ -213,7 +233,7 @@ normalize_vault_addresses_for_gateway
 export VAULT_TOKEN
 export AKEYLESS_PROFILE
 
-if ! vault status -address="$VAULT_ADDR_BACKEND" >/dev/null 2>&1 || ! vault status -address="$VAULT_ADDR_PAYMENTS" >/dev/null 2>&1; then
+if ! vault status -address="$LOCAL_VAULT_ADDR_BACKEND" >/dev/null 2>&1 || ! vault status -address="$LOCAL_VAULT_ADDR_PAYMENTS" >/dev/null 2>&1; then
     run "start vault dev servers" bash "$SCRIPT_DIR/setup-vault-dev.sh"
 fi
 
@@ -237,19 +257,21 @@ backend_test_secret="secret/myapp/e2e-akeyless-$ts"
 payments_test_secret="secret/payments/e2e-vault-$ts"
 encoded_value="$(printf '{"value":"e2e-from-akeyless-%s"}' "$ts" | base64 -w0)"
 export VAULT_ADDR="$VAULT_ADDR_BACKEND"
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
 
 cleanup_test_secrets() {
-    export VAULT_ADDR="$VAULT_ADDR_BACKEND"
+    export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
     vault kv metadata delete "$backend_test_secret" >/dev/null 2>&1 || true
-    export VAULT_ADDR="$VAULT_ADDR_PAYMENTS"
+    export VAULT_ADDR="$LOCAL_VAULT_ADDR_PAYMENTS"
     vault kv metadata delete "$payments_test_secret" >/dev/null 2>&1 || true
 }
 
 trap cleanup_test_secrets EXIT
 
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
 run "vault backend list" vault kv list secret/myapp
 run "vault backend get db-password" vault kv get -format=json secret/myapp/db-password
-export VAULT_ADDR="$VAULT_ADDR_PAYMENTS"
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_PAYMENTS"
 run "vault payments list" vault kv list secret/payments
 run "vault payments get stripe-key" vault kv get -format=json secret/payments/stripe-key
 
@@ -261,11 +283,11 @@ run "usc list payments" akeyless usc list --usc-name "$USC_PAYMENTS" --profile "
 run "usc get backend db-password" akeyless usc get --usc-name "$USC_BACKEND" --secret-id secret/myapp/db-password --profile "$AKEYLESS_PROFILE"
 run "usc get payments stripe-key" akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id secret/payments/stripe-key --profile "$AKEYLESS_PROFILE"
 
-export VAULT_ADDR="$VAULT_ADDR_BACKEND"
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
 run "usc create backend unique secret" akeyless usc create --usc-name "$USC_BACKEND" --secret-name "$backend_test_secret" --value "$encoded_value" --profile "$AKEYLESS_PROFILE"
 run "vault verify backend unique secret" vault kv get -format=json "$backend_test_secret"
 
-export VAULT_ADDR="$VAULT_ADDR_PAYMENTS"
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_PAYMENTS"
 run "vault create payments unique secret" vault kv put "$payments_test_secret" value="e2e-from-vault-$ts"
 run "usc get payments unique secret" akeyless usc get --usc-name "$USC_PAYMENTS" --secret-id "$payments_test_secret" --profile "$AKEYLESS_PROFILE"
 
@@ -273,6 +295,8 @@ export VAULT_ADDR='https://hvp.akeyless.io'
 export VAULT_TOKEN="${demo_access_id}..${demo_access_key}"
 run "hvp get db-password" vault kv get -format=json secret/myapp/db-password
 run "hvp get api-key" vault kv get -format=json secret/myapp/api-key
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
+export VAULT_TOKEN="${VAULT_TOKEN:-root}"
 
 aws_usc_verified=false
 if [[ "${ENABLE_AWS_DEMO:-false}" == "true" ]]; then
@@ -317,19 +341,17 @@ else
     echo "--- exit=0 ---"
 fi
 
-# ── Rotated secret verification — Vault ──────────────────────────────────────
+# ── Synced secret rotation verification — Vault ──────────────────────────────
 echo "=== rotation verification vault ==="
 export VAULT_ADDR="$VAULT_ADDR_BACKEND"
+export VAULT_ADDR="$LOCAL_VAULT_ADDR_BACKEND"
 export VAULT_TOKEN="${VAULT_TOKEN:-root}"
 BEFORE_VAULT="$(vault kv get -field=api_key secret/myapp/api-key 2>/dev/null || echo UNAVAILABLE)"
 echo "Before rotation: $BEFORE_VAULT"
 
-akeyless rotated-secret set-next-rotation-date \
-    --name "$ROTATED_VAULT" \
-    --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --profile "$AKEYLESS_PROFILE"
-
-sleep 12   # allow Gateway to execute the rotation
+NEW_VAULT_JSON="$(printf '{"api_key":"e2e-vault-rotated-%s"}' "$ts")"
+rotate_synced_secret "$ROTATED_VAULT" "$NEW_VAULT_JSON" json
+sleep 3
 
 AFTER_VAULT="$(vault kv get -field=api_key secret/myapp/api-key 2>/dev/null || echo UNAVAILABLE)"
 echo "After rotation : $AFTER_VAULT"
@@ -337,9 +359,36 @@ echo "After rotation : $AFTER_VAULT"
 if [[ "$BEFORE_VAULT" == "$AFTER_VAULT" || "$AFTER_VAULT" == "UNAVAILABLE" ]]; then
     echo "WARNING: Vault rotation could not be confirmed — values are identical or unavailable." >&2
 else
-    echo "Vault rotation confirmed: secret value changed."
+echo "Vault rotation confirmed: secret value changed."
 fi
 echo "--- exit=0 ---"
+
+# ── Synced secret rotation verification — AWS ────────────────────────────────
+if [[ "${ENABLE_AWS_DEMO:-false}" == "true" && "$aws_usc_verified" == "true" ]]; then
+    echo "=== rotation verification aws ==="
+    BEFORE_AWS="$(aws secretsmanager get-secret-value \
+        --region "$AWS_REGION" \
+        --secret-id "$AWS_DEMO_SECRET_NAME" \
+        --query SecretString -o text 2>/dev/null || echo UNAVAILABLE)"
+    echo "Before rotation: $BEFORE_AWS"
+
+    NEW_AWS_JSON="$(printf '{"api_key":"e2e-aws-rotated-%s"}' "$ts")"
+    rotate_synced_secret "$ROTATED_AWS" "$NEW_AWS_JSON" json
+    sleep 3
+
+    AFTER_AWS="$(aws secretsmanager get-secret-value \
+        --region "$AWS_REGION" \
+        --secret-id "$AWS_DEMO_SECRET_NAME" \
+        --query SecretString -o text 2>/dev/null || echo UNAVAILABLE)"
+    echo "After rotation : $AFTER_AWS"
+
+    if [[ "$BEFORE_AWS" == "$AFTER_AWS" || "$AFTER_AWS" == "UNAVAILABLE" ]]; then
+        echo "WARNING: AWS rotation could not be confirmed — values are identical or unavailable." >&2
+    else
+        echo "AWS rotation confirmed: secret value changed."
+    fi
+    echo "--- exit=0 ---"
+fi
 
 # ── Rotated secret verification — Azure ──────────────────────────────────────
 if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true" ]]; then
@@ -350,12 +399,8 @@ if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true"
         --query value -o tsv 2>/dev/null || echo UNAVAILABLE)"
     echo "Before rotation: $BEFORE_AZ"
 
-    akeyless rotated-secret set-next-rotation-date \
-        --name "$ROTATED_AZURE" \
-        --next-rotation-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --profile "$AKEYLESS_PROFILE"
-
-    sleep 12
+    rotate_synced_secret "$ROTATED_AZURE" "e2e-azure-rotated-$ts"
+    sleep 3
 
     AFTER_AZ="$(az_cmd keyvault secret show \
         --vault-name "$AZURE_VAULT_NAME" \

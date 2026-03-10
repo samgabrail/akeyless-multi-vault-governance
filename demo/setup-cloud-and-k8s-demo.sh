@@ -64,6 +64,13 @@ if command -v az >/dev/null 2>&1; then
     if [[ -z "$AZURE_VAULT_NAME" ]]; then
       echo "      Skipped Azure setup: AZURE_VAULT_NAME is not set."
     else
+      az keyvault secret purge \
+        --vault-name "$AZURE_VAULT_NAME" \
+        --name "$AZURE_STATIC_SECRET_NAME" >/dev/null 2>&1 || true
+      az keyvault secret purge \
+        --vault-name "$AZURE_VAULT_NAME" \
+        --name "${AZURE_ROTATED_SECRET_NAME}" >/dev/null 2>&1 || true
+
       # Static secret — governed read-only via USC (shown in Chapter 7)
       az keyvault secret set \
         --vault-name "$AZURE_VAULT_NAME" \
