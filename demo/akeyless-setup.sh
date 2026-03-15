@@ -31,6 +31,11 @@ USC_PATH_AZURE="/${USC_AZURE}/*"
 ROTATED_VAULT="${DEMO_FOLDER}/vault-rotated-api-key"
 ROTATED_AWS="${DEMO_FOLDER}/aws-rotated-secret"
 ROTATED_AZURE="${DEMO_FOLDER}/azure-rotated-api-key"
+ROTATED_AZURE_APP="${DEMO_FOLDER}/azure-app-rotated-secret"
+
+TARGET_DB="${DEMO_FOLDER}/db-target"
+DB_ROTATED="${DEMO_FOLDER}/db-rotated-password"
+DB_ROTATED_VAULT_PATH="${DB_ROTATED_VAULT_PATH:-secret/payments/db-rotated-password}"
 
 READONLY_ROLE_NAME="demo-readonly-role"
 READONLY_AUTH_NAME="demo-readonly-auth"
@@ -49,6 +54,14 @@ AWS_USC_PREFIX="${AWS_USC_PREFIX:-}"
 AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
 AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-payments-api-key}"
 AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}"
+# demo-akeyless-mvg-target: the "demo app" whose client secret Akeyless rotates
+DEMO_APP_CLIENT_ID="${DEMO_APP_CLIENT_ID:-217ffd30-f65f-43ff-84d3-491dde1f2d96}"
+AZURE_APP_KV_SECRET_NAME="${AZURE_APP_KV_SECRET_NAME:-demo-app-client-secret}"
+ENABLE_DB_DEMO="${ENABLE_DB_DEMO:-false}"
+MYSQL_HOST="${MYSQL_HOST:-}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"
+MYSQL_USER="${MYSQL_USER:-}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
 AKEYLESS_DEMO_ENV_FILE="${AKEYLESS_DEMO_ENV_FILE:-$SCRIPT_DIR/.akeyless-demo.env}"
 
 echo "==> Validating environment variables"
@@ -71,6 +84,13 @@ if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
     if [[ -z "${AZURE_TENANT_ID:-}" || -z "${AZURE_CLIENT_ID:-}" || -z "${AZURE_CLIENT_SECRET:-}" ]]; then
         echo "ERROR: ENABLE_AZURE_DEMO=true requires AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET." >&2
         echo "       Use demo/setup-cloud-and-k8s-demo.sh to confirm they are set." >&2
+        exit 1
+    fi
+fi
+
+if [[ "$ENABLE_DB_DEMO" == "true" ]]; then
+    if [[ -z "${MYSQL_HOST:-}" || -z "${MYSQL_USER:-}" || -z "${MYSQL_PASSWORD:-}" ]]; then
+        echo "ERROR: ENABLE_DB_DEMO=true requires MYSQL_HOST, MYSQL_USER, and MYSQL_PASSWORD." >&2
         exit 1
     fi
 fi
@@ -154,6 +174,14 @@ delete_item_if_exists() {
     wait_until_missing item "$name"
 }
 
+delete_rotated_secret_if_exists() {
+    local name="$1"
+    akl rotated-secret delete --name "/$name" >/dev/null 2>&1 || true
+    # rotated-secret delete is async; also try delete-item as fallback
+    akl delete-item --name "/$name" >/dev/null 2>&1 || true
+    wait_until_missing item "$name"
+}
+
 delete_target_if_exists() {
     local name="$1"
     akl target delete --name "$name" --force-deletion >/dev/null 2>&1 || true
@@ -179,6 +207,10 @@ delete_role_if_exists "$DENIED_ROLE_NAME"
 delete_role_if_exists "$READONLY_ROLE_NAME"
 
 # Delete rotated secrets before their targets (avoid dependency conflicts)
+# True rotated secret items (created via rotated-secret create) need rotated-secret delete
+delete_rotated_secret_if_exists "$ROTATED_AZURE_APP"
+delete_rotated_secret_if_exists "$DB_ROTATED"
+# Static secrets used as sync sources (created via create-secret) use delete-item
 delete_item_if_exists "$ROTATED_AZURE"
 delete_item_if_exists "$ROTATED_AWS"
 delete_item_if_exists "$ROTATED_VAULT"
@@ -190,6 +222,7 @@ delete_item_if_exists "$USC_BACKEND"
 
 delete_target_if_exists "$TARGET_AZURE"
 delete_target_if_exists "$TARGET_AWS"
+delete_target_if_exists "$TARGET_DB"
 delete_target_if_exists "$TARGET_PAYMENTS"
 delete_target_if_exists "$TARGET_BACKEND"
 
@@ -274,6 +307,84 @@ if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
         --target-to-associate "$TARGET_AZURE" \
         --gateway-url "$AKEYLESS_GATEWAY_URL" \
         --azure-kv-name "$AZURE_VAULT_NAME"
+
+    echo ""
+    echo "==> Creating Azure App Registration rotated secret: $ROTATED_AZURE_APP"
+    # Rotates the client secret on the 'demo-akeyless-mvg-target' app registration.
+    # Prerequisites (automated in setup-cloud-and-k8s-demo.sh):
+    #   1. sp-akeyless-mvg-demo must be an owner of demo-akeyless-mvg-target
+    #   2. sp-akeyless-mvg-demo must have an appRoleAssignment for
+    #      Application.ReadWrite.OwnedBy (Graph role 18a4783c-...) — note: this
+    #      requires a direct POST to /servicePrincipals/{id}/appRoleAssignments,
+    #      NOT az ad app permission admin-consent (which only handles delegated perms)
+    akl rotated-secret create azure \
+        --name "$ROTATED_AZURE_APP" \
+        --target-name "$TARGET_AZURE" \
+        --rotator-type api-key \
+        --authentication-credentials use-target-creds \
+        --app-id "$DEMO_APP_CLIENT_ID" \
+        --auto-rotate true \
+        --rotation-interval 1 \
+        --tag "compliance=pci-dss" --tag "demo=mvg" \
+        --gateway-url "$AKEYLESS_GATEWAY_URL"
+
+    echo ""
+    echo "==> Purging soft-deleted KV secret '$AZURE_APP_KV_SECRET_NAME' if present (prevents 409 on sync)"
+    if azure_cli_available; then
+        azure_cli keyvault secret purge \
+            --vault-name "$AZURE_VAULT_NAME" \
+            --name "$AZURE_APP_KV_SECRET_NAME" >/dev/null 2>&1 || true
+        sleep 5
+    fi
+
+    echo ""
+    echo "==> Syncing $ROTATED_AZURE_APP → Key Vault secret '$AZURE_APP_KV_SECRET_NAME'"
+    akl rotated-secret sync \
+        --name "$ROTATED_AZURE_APP" \
+        --usc-name "$USC_AZURE" \
+        --remote-secret-name "$AZURE_APP_KV_SECRET_NAME" \
+        --gateway-url "$AKEYLESS_GATEWAY_URL"
+fi
+
+if [[ "$ENABLE_DB_DEMO" == "true" ]]; then
+    echo ""
+    echo "==> Creating MySQL target: $TARGET_DB"
+    # MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_PORT, MYSQL_DB_NAME must be set.
+    # For a self-contained demo, deploy a MySQL pod in the akeyless namespace:
+    #   kubectl apply -f demo/demo-mysql.yaml   (creates demo-mysql service + deployment)
+    # then set: MYSQL_HOST=demo-mysql.akeyless.svc.cluster.local MYSQL_USER=root
+    #           MYSQL_PASSWORD=DemoRoot@2026! MYSQL_DB_NAME=demo
+    akl target create db \
+        --name "$TARGET_DB" \
+        --db-type mysql \
+        --host "$MYSQL_HOST" \
+        --port "${MYSQL_PORT:-3306}" \
+        --user-name "$MYSQL_USER" \
+        --pwd "$MYSQL_PASSWORD" \
+        --db-name "${MYSQL_DB_NAME:-demo}"
+
+    echo ""
+    echo "==> Creating MySQL rotated secret: $DB_ROTATED"
+    # Rotates the password for MYSQL_ROTATED_USER (default: akl_demo_user).
+    # Ensure the user exists first: CREATE USER 'akl_demo_user'@'%' IDENTIFIED BY '...';
+    akl rotated-secret create mysql \
+        --name "$DB_ROTATED" \
+        --target-name "$TARGET_DB" \
+        --rotator-type password \
+        --rotated-username "${MYSQL_ROTATED_USER:-akl_demo_user}" \
+        --rotated-password "${MYSQL_ROTATED_INITIAL_PASS:-InitialPass2026!}" \
+        --auto-rotate true \
+        --rotation-interval 1 \
+        --tag "compliance=pci-dss" --tag "demo=mvg" \
+        --gateway-url "$AKEYLESS_GATEWAY_URL"
+
+    echo ""
+    echo "==> Syncing $DB_ROTATED → Vault payments secret '$DB_ROTATED_VAULT_PATH'"
+    akl rotated-secret sync \
+        --name "$DB_ROTATED" \
+        --usc-name "$USC_PAYMENTS" \
+        --remote-secret-name "$DB_ROTATED_VAULT_PATH" \
+        --gateway-url "$AKEYLESS_GATEWAY_URL"
 fi
 
 echo ""
@@ -320,6 +431,10 @@ if [[ "$ENABLE_AWS_DEMO" == "true" ]]; then
 fi
 if [[ "$ENABLE_AZURE_DEMO" == "true" ]]; then
     akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "/$ROTATED_AZURE" --capability read
+    akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "/$ROTATED_AZURE_APP" --capability read
+fi
+if [[ "$ENABLE_DB_DEMO" == "true" ]]; then
+    akl set-role-rule --role-name "$READONLY_ROLE_NAME" --path "/$DB_ROTATED" --capability read
 fi
 
 echo ""
@@ -410,6 +525,14 @@ export AZURE_ROTATED_SECRET_NAME='${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotate
 export ROTATED_VAULT='$ROTATED_VAULT'
 export ROTATED_AWS='$ROTATED_AWS'
 export ROTATED_AZURE='$ROTATED_AZURE'
+export AZURE_TENANT_ID='${AZURE_TENANT_ID:-}'
+export AZURE_CLIENT_ID='${AZURE_CLIENT_ID:-}'
+export AZURE_CLIENT_SECRET='${AZURE_CLIENT_SECRET:-}'
+export DEMO_APP_CLIENT_ID='$DEMO_APP_CLIENT_ID'
+export ROTATED_AZURE_APP='$ROTATED_AZURE_APP'
+export AZURE_APP_KV_SECRET_NAME='$AZURE_APP_KV_SECRET_NAME'
+export DB_ROTATED='$DB_ROTATED'
+export DB_ROTATED_VAULT_PATH='$DB_ROTATED_VAULT_PATH'
 export READONLY_ACCESS_ID='$readonly_access_id'
 export READONLY_ACCESS_KEY='$readonly_access_key'
 export DENIED_ACCESS_ID='$denied_access_id'

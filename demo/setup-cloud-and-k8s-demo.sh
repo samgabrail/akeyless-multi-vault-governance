@@ -15,7 +15,7 @@ AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_DEMO_SECRET_NAME="${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}"
 AWS_DEMO_SECRET_VALUE="${AWS_DEMO_SECRET_VALUE:-{\"api_key\":\"aws-demo-payments-key-v1\"}}"
 
-AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
+AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-akl-mvg-demo-kv}"
 AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-payments-api-key}"
 # This is the secret Akeyless will rotate on a schedule; seeded with a v1 value.
 AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}"
@@ -85,6 +85,12 @@ else
   echo "[1/3] Skipped AWS setup: aws CLI not installed."
 fi
 
+AZURE_APP_KV_SECRET_NAME="${AZURE_APP_KV_SECRET_NAME:-demo-app-client-secret}"
+# demo-akeyless-mvg-target: the "demo app" whose client secret Akeyless rotates
+# sp-akeyless-mvg-demo: the privileged app (Akeyless Azure target) that performs rotation
+DEMO_APP_CLIENT_ID="${DEMO_APP_CLIENT_ID:-217ffd30-f65f-43ff-84d3-491dde1f2d96}"
+PRIV_APP_CLIENT_ID="${PRIV_APP_CLIENT_ID:-17eef820-4ed5-486d-a2e2-35af42c4db76}"
+
 echo ""
 echo "[2/3] Seeding Azure Key Vault secrets..."
 
@@ -99,6 +105,9 @@ if command -v az >/dev/null 2>&1; then
       az keyvault secret purge \
         --vault-name "$AZURE_VAULT_NAME" \
         --name "${AZURE_ROTATED_SECRET_NAME}" >/dev/null 2>&1 || true
+      az keyvault secret purge \
+        --vault-name "$AZURE_VAULT_NAME" \
+        --name "${AZURE_APP_KV_SECRET_NAME}" >/dev/null 2>&1 || true
 
       # Static secret — governed read-only via USC (shown in Chapter 7)
       az keyvault secret set \
@@ -118,6 +127,49 @@ if command -v az >/dev/null 2>&1; then
 
       AZURE_DEMO_READY=true
     fi
+
+    # ── Azure App Registration setup for rotation demo ────────────────────────
+    # One-time: ensure sp-akeyless-mvg-demo can rotate credentials on the demo app.
+    # Safe to re-run — all operations are idempotent.
+    echo ""
+    echo "      [Azure App] Verifying rotation permissions for demo-akeyless-mvg-target..."
+
+    PRIV_SP_OBJ_ID="$(az ad sp show --id "$PRIV_APP_CLIENT_ID" --query id -o tsv 2>/dev/null || true)"
+    DEMO_APP_OBJ_ID="$(az ad app show --id "$DEMO_APP_CLIENT_ID" --query id -o tsv 2>/dev/null || true)"
+
+    if [[ -z "$PRIV_SP_OBJ_ID" || -z "$DEMO_APP_OBJ_ID" ]]; then
+      echo "      WARNING: could not find one or both Azure app registrations — skipping rotation setup." >&2
+    else
+      # Add sp-akeyless-mvg-demo as owner of the demo app (required for api-key rotation)
+      existing_owner="$(az ad app owner list --id "$DEMO_APP_OBJ_ID" \
+        --query "[?id=='$PRIV_SP_OBJ_ID'].id" -o tsv 2>/dev/null || true)"
+      if [[ -z "$existing_owner" ]]; then
+        az ad app owner add \
+          --id "$DEMO_APP_OBJ_ID" \
+          --owner-object-id "$PRIV_SP_OBJ_ID" >/dev/null 2>&1
+        echo "      Added sp-akeyless-mvg-demo as owner of demo-akeyless-mvg-target"
+      else
+        echo "      Owner already set: sp-akeyless-mvg-demo owns demo-akeyless-mvg-target"
+      fi
+
+      # Grant Application.ReadWrite.OwnedBy via direct appRoleAssignment on the SP.
+      # Note: az ad app permission admin-consent only handles delegated permissions;
+      # application permissions (Role type) require an appRoleAssignment on the SP.
+      GRAPH_SP_ID="$(az ad sp show --id "00000003-0000-0000-c000-000000000000" --query id -o tsv 2>/dev/null || true)"
+      existing_assignment="$(az rest --method GET \
+        --url "https://graph.microsoft.com/v1.0/servicePrincipals/${PRIV_SP_OBJ_ID}/appRoleAssignments" \
+        --query "value[?appRoleId=='18a4783c-866b-4cc7-a460-3d5e5662c884'].appRoleId" \
+        -o tsv 2>/dev/null || true)"
+      if [[ -z "$existing_assignment" ]]; then
+        az rest --method POST \
+          --url "https://graph.microsoft.com/v1.0/servicePrincipals/${PRIV_SP_OBJ_ID}/appRoleAssignments" \
+          --body "{\"principalId\":\"${PRIV_SP_OBJ_ID}\",\"resourceId\":\"${GRAPH_SP_ID}\",\"appRoleId\":\"18a4783c-866b-4cc7-a460-3d5e5662c884\"}" \
+          >/dev/null 2>&1
+        echo "      Granted Application.ReadWrite.OwnedBy to sp-akeyless-mvg-demo"
+      else
+        echo "      Application.ReadWrite.OwnedBy already granted"
+      fi
+    fi
   else
     echo "      Skipped Azure setup: az CLI is installed but not authenticated."
   fi
@@ -136,6 +188,8 @@ echo "export AWS_USC_PREFIX=''"
 echo "export AZURE_VAULT_NAME='$AZURE_VAULT_NAME'"
 echo "export AZURE_STATIC_SECRET_NAME='$AZURE_STATIC_SECRET_NAME'"
 echo "export AZURE_ROTATED_SECRET_NAME='$AZURE_ROTATED_SECRET_NAME'"
+echo "export DEMO_APP_CLIENT_ID='$DEMO_APP_CLIENT_ID'"
+echo "export AZURE_APP_KV_SECRET_NAME='$AZURE_APP_KV_SECRET_NAME'"
 echo ""
 echo "If your AWS credentials are not already exported in this shell, also set:"
 echo "export AWS_ACCESS_KEY_ID='<your-access-key-id>'"
@@ -146,4 +200,7 @@ echo "For Azure, ensure the following service principal env vars are set:"
 echo "export AZURE_TENANT_ID='<your-tenant-id>'"
 echo "export AZURE_CLIENT_ID='<your-client-id>'"
 echo "export AZURE_CLIENT_SECRET='<your-client-secret>'"
+echo ""
+echo "For DB rotation demo (optional):"
+echo "export ENABLE_DB_DEMO=false   # set to true + supply MYSQL_HOST/MYSQL_USER/MYSQL_PASSWORD"
 echo ""

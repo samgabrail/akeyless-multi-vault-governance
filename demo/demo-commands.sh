@@ -24,6 +24,10 @@
 # export ROTATED_VAULT='MVG-demo/vault-rotated-api-key'
 # export ROTATED_AWS='MVG-demo/aws-rotated-secret'
 # export ROTATED_AZURE='MVG-demo/azure-rotated-api-key'
+# export DEMO_APP_CLIENT_ID='217ffd30-f65f-43ff-84d3-491dde1f2d96'
+# export ROTATED_AZURE_APP='MVG-demo/azure-app-rotated-secret'
+# export AZURE_APP_KV_SECRET_NAME='demo-app-client-secret'
+# export DB_ROTATED='MVG-demo/db-rotated-password'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +273,149 @@ echo "    az keyvault secret show --vault-name ${AZURE_VAULT_NAME:-mvg-demo-kv} 
 # Key point: Akeyless owns the source secret and can push the current value back
 # to HashiCorp Vault, AWS SM, and Azure KV through the Gateway. One update point,
 # three governed backends, and one audit trail for every read, denial, and sync.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAPTER 7c: Azure App Registration rotation — Akeyless rotates, Key Vault delivers
+# ─────────────────────────────────────────────────────────────────────────────
+echo "--- Chapter 7c: Akeyless rotates an Azure App Registration client secret, Key Vault delivers it ---"
+
+# Story: "We must use Azure Key Vault, but we want Akeyless as the central rotation
+# engine. The app reads only from Key Vault — it doesn't know Akeyless exists."
+#
+# Azure setup (done once, automated in setup-cloud-and-k8s-demo.sh):
+#   • sp-akeyless-mvg-demo  → privileged app (Akeyless Azure target)
+#   • demo-akeyless-mvg-target → demo app whose client secret Akeyless will rotate
+#   • sp-akeyless-mvg-demo is owner of demo-akeyless-mvg-target + has
+#     Application.ReadWrite.OwnedBy permission (admin consent granted)
+
+# 1. Show the demo app's current client secret metadata in Azure portal / CLI
+#    (Azure portal: App Registrations → demo-akeyless-mvg-target → Certificates & secrets)
+echo "==> Current client secrets on demo-akeyless-mvg-target (before rotation)"
+export PYTHONPATH=/opt/az/lib/python3.13/site-packages
+/opt/az/bin/python3.13 -m azure.cli ad app credential list \
+  --id "${DEMO_APP_CLIENT_ID:-217ffd30-f65f-43ff-84d3-491dde1f2d96}" \
+  --query "[].{name:displayName, hint:hint, expiry:endDateTime}" \
+  --output table
+
+# 2. Trigger a manual rotation via the Gateway API ("Rotate Now" equivalent)
+#    After rotation, Akeyless automatically syncs the new client secret to Key Vault.
+DEMO_TOKEN=$(akeyless auth \
+  --access-id "$(grep access_id ~/.akeyless/profiles/${AKEYLESS_PROFILE:-demo}.toml | awk -F"'" '{print $2}')" \
+  --access-key "$(grep access_key ~/.akeyless/profiles/${AKEYLESS_PROFILE:-demo}.toml | awk -F"'" '{print $2}')" \
+  --access-type access_key --json 2>/dev/null \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+echo ""
+echo "==> Triggering rotation (Akeyless creates a new Azure client secret + syncs to Key Vault)"
+curl -sk -X POST "${AKEYLESS_GW:-https://192.168.1.82:8000}/api/v2/rotate-secret" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"/${ROTATED_AZURE_APP:-MVG-demo/azure-app-rotated-secret}\",\"token\":\"$DEMO_TOKEN\"}" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('Rotated:', d.get('name', d.get('error','')))"
+sleep 5
+
+# 3. Alternatively: force a sync of the current rotated value into Key Vault right now
+#    (useful for seeding Key Vault before the first automatic rotation fires)
+echo ""
+echo "==> Syncing current rotated value into Key Vault"
+akeyless rotated-secret sync \
+  --name "${ROTATED_AZURE_APP:-MVG-demo/azure-app-rotated-secret}" \
+  --usc-name "${USC_AZURE:-MVG-demo/azure-usc}" \
+  --remote-secret-name "${AZURE_APP_KV_SECRET_NAME:-demo-app-client-secret}" \
+  --gateway-url "${AKEYLESS_GW:-https://192.168.1.82:8000}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+# 4. Show the new secret version in Key Vault — the app reads from here, untouched
+echo ""
+echo "==> Key Vault: demo-app-client-secret (app sees only this)"
+/opt/az/bin/python3.13 -m azure.cli keyvault secret show \
+  --vault-name "${AZURE_VAULT_NAME:-akl-mvg-demo-kv}" \
+  --name "${AZURE_APP_KV_SECRET_NAME:-demo-app-client-secret}" \
+  --query "{name:name, version:id, updated:attributes.updated}" \
+  --output json
+
+# 5. Confirm Key Vault has the value via Akeyless USC too — same source, one audit trail
+echo ""
+echo "==> Same secret visible via Akeyless USC (one governance plane, two views)"
+akeyless usc get \
+  --usc-name "${USC_AZURE:-MVG-demo/azure-usc}" \
+  --secret-id "${AZURE_APP_KV_SECRET_NAME:-demo-app-client-secret}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+# 6. Show the new client secret metadata on the demo app in Azure — rotation happened
+echo ""
+echo "==> Client secrets on demo-akeyless-mvg-target AFTER rotation (new secret created)"
+/opt/az/bin/python3.13 -m azure.cli ad app credential list \
+  --id "${DEMO_APP_CLIENT_ID:-217ffd30-f65f-43ff-84d3-491dde1f2d96}" \
+  --query "[].{name:displayName, hint:hint, expiry:endDateTime}" \
+  --output table
+
+# Key point: Akeyless rotated the Azure App Registration client secret, synced it into
+# Key Vault, and the app never changed. One rotation event, one audit log entry,
+# zero app changes. Same model works for AWS Secrets Manager, HashiCorp Vault, etc.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAPTER 7d: Database rotation — same rotation engine, non-Azure target
+# ─────────────────────────────────────────────────────────────────────────────
+echo "--- Chapter 7d: Akeyless rotates a MySQL database password — not Azure-specific ---"
+
+# Story: "Akeyless is not an Azure-only tool. The same rotation engine that just
+# rotated an Azure App Registration secret can rotate database credentials, AWS IAM
+# access keys, HashiCorp Vault AppRoles — any target with an Akeyless Target."
+#
+# PRE-REQUISITE: run once before the demo:
+#   kubectl apply -f demo/demo-mysql.yaml
+#   export ENABLE_DB_DEMO=true
+#   export MYSQL_HOST=demo-mysql.akeyless.svc.cluster.local
+#   export MYSQL_USER=root  MYSQL_PASSWORD='DemoRoot@2026!'  MYSQL_DB_NAME=demo
+#   kubectl exec -n akeyless deployment/demo-mysql -- \
+#     mysql -uroot -p'DemoRoot@2026!' -e \
+#     "CREATE USER IF NOT EXISTS 'akl_demo_user'@'%' IDENTIFIED BY 'InitialPass2026!';
+#      GRANT SELECT ON demo.* TO 'akl_demo_user'@'%'; FLUSH PRIVILEGES;"
+
+# 1. Show the demo user can log in with current (pre-rotation) password
+echo "==> Before rotation: akl_demo_user password is InitialPass2026!"
+kubectl --context proxmox-k3s exec -n akeyless deployment/demo-mysql -- \
+  mysql -uakl_demo_user -p'InitialPass2026!' -e "SELECT 'login OK' AS status, NOW() AS at;" 2>/dev/null | grep -v Warning
+
+# 2. Show the current rotated secret value in Akeyless
+echo ""
+echo "==> Current DB rotated secret value in Akeyless"
+akeyless rotated-secret get-value \
+  --name "${DB_ROTATED:-MVG-demo/db-rotated-password}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+# 3. Trigger rotation via Gateway API
+DEMO_TOKEN=$(akeyless auth \
+  --access-id "$(grep access_id ~/.akeyless/profiles/${AKEYLESS_PROFILE:-demo}.toml | awk -F"'" '{print $2}')" \
+  --access-key "$(grep access_key ~/.akeyless/profiles/${AKEYLESS_PROFILE:-demo}.toml | awk -F"'" '{print $2}')" \
+  --access-type access_key --json 2>/dev/null \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+echo ""
+echo "==> Triggering DB rotation (Akeyless generates new password and updates MySQL)"
+curl -sk -X POST "${AKEYLESS_GW:-https://192.168.1.82:8000}/api/v2/rotate-secret" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"/${DB_ROTATED:-MVG-demo/db-rotated-password}\",\"token\":\"$DEMO_TOKEN\"}" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('Rotated:', d.get('name', d.get('error','')))"
+sleep 5
+echo "    After rotation, the old password no longer works:"
+
+# 4. Verify old password is rejected after rotation
+kubectl --context proxmox-k3s exec -n akeyless deployment/demo-mysql -- \
+  mysql -uakl_demo_user -p'InitialPass2026!' -e "SELECT 1;" 2>&1 | grep -E "ERROR|Access denied" || echo "(rotate first, then re-run this line)"
+
+# 5. Read the NEW password from Akeyless and log in with it
+echo ""
+echo "==> New password from Akeyless (post-rotation)"
+akeyless rotated-secret get-value \
+  --name "${DB_ROTATED:-MVG-demo/db-rotated-password}" \
+  --profile "${AKEYLESS_PROFILE:-demo}"
+
+# Key point: same Akeyless rotation engine works on MySQL, PostgreSQL, AWS IAM,
+# Azure App Registrations, HashiCorp Vault — governed from one control plane.
+# Any USC (Vault, AWS SM, Azure KV, K8s) can receive the rotated value on sync.
 
 
 # ─────────────────────────────────────────────────────────────────────────────

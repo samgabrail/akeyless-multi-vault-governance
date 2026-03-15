@@ -15,7 +15,7 @@ VAULT_TOKEN="${VAULT_TOKEN:-root}"
 LOCAL_VAULT_TOKEN="$VAULT_TOKEN"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_DEMO_SECRET_NAME="${AWS_DEMO_SECRET_NAME:-demo/mvg/aws/payments-api-key}"
-AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-mvg-demo-kv}"
+AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-akl-mvg-demo-kv}"
 AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-payments-api-key}"
 AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-demo-azure-rotated-api-key}"
 AWS_USE_STS_DEMO="${AWS_USE_STS_DEMO:-true}"
@@ -23,6 +23,14 @@ AWS_STS_DURATION_SECONDS="${AWS_STS_DURATION_SECONDS:-3600}"
 REQUIRE_AWS_E2E="${REQUIRE_AWS_E2E:-false}"
 REQUIRE_AZURE_E2E="${REQUIRE_AZURE_E2E:-false}"
 AZ_CLI_BIN="${AZ_CLI_BIN:-}"
+ENABLE_DB_DEMO="${ENABLE_DB_DEMO:-true}"
+MYSQL_HOST="${MYSQL_HOST:-demo-mysql.akeyless.svc.cluster.local}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"
+MYSQL_USER="${MYSQL_USER:-root}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-DemoRoot@2026!}"
+MYSQL_DB_NAME="${MYSQL_DB_NAME:-demo}"
+MYSQL_ROTATED_USER="${MYSQL_ROTATED_USER:-akl_demo_user}"
+MYSQL_ROTATED_INITIAL_PASS="${MYSQL_ROTATED_INITIAL_PASS:-InitialPass2026!}"
 CLEANUP_ONLY=false
 FULL_CLEANUP=false
 RAW_AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
@@ -40,6 +48,10 @@ USC_AZURE_NAME="${AKEYLESS_DEMO_FOLDER}/azure-usc"
 ROTATED_VAULT_NAME="${AKEYLESS_DEMO_FOLDER}/vault-rotated-api-key"
 ROTATED_AWS_NAME="${AKEYLESS_DEMO_FOLDER}/aws-rotated-secret"
 ROTATED_AZURE_NAME="${AKEYLESS_DEMO_FOLDER}/azure-rotated-api-key"
+ROTATED_AZURE_APP_NAME="${AKEYLESS_DEMO_FOLDER}/azure-app-rotated-secret"
+TARGET_DB_NAME="${AKEYLESS_DEMO_FOLDER}/db-target"
+DB_ROTATED_NAME="${AKEYLESS_DEMO_FOLDER}/db-rotated-password"
+DB_ROTATED_VAULT_PATH="${DB_ROTATED_VAULT_PATH:-secret/payments/db-rotated-password}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -114,6 +126,26 @@ rotate_synced_secret() {
     else
         akeyless update-secret-val --name "$name" --value "$new_value" --profile "$AKEYLESS_PROFILE"
     fi
+}
+
+trigger_rotated_secret() {
+    local name="$1"
+    local gw_token
+    local demo_access_id_local demo_access_key_local
+    demo_access_id_local="$(profile_field access_id)"
+    demo_access_key_local="$(profile_field access_key)"
+    gw_token="$(akeyless auth \
+        --access-id "$demo_access_id_local" \
+        --access-key "$demo_access_key_local" \
+        --access-type access_key \
+        --gateway-url "$AKEYLESS_GW" \
+        --json 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+    curl -sk -X POST "${AKEYLESS_GW}/api/v2/rotate-secret" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"/${name}\",\"token\":\"${gw_token}\"}" \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0) if 'name' in d or 'ok' in str(d).lower() or d=={} else (print('rotate-secret response:',d,file=sys.stderr),sys.exit(1))" \
+        2>&1 || true
 }
 
 aws_backend_cmd() {
@@ -199,6 +231,8 @@ cleanup_demo_resources() {
     akeyless auth-method delete --name demo-readonly-auth --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-role --name demo-denied-role --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-role --name demo-readonly-role --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless rotated-secret delete --name "/$ROTATED_AZURE_APP_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless rotated-secret delete --name "/$DB_ROTATED_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name "/$ROTATED_AZURE_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name "/$ROTATED_AWS_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name "/$ROTATED_VAULT_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
@@ -206,6 +240,7 @@ cleanup_demo_resources() {
     akeyless delete-item --name "/$USC_AWS_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name "/$USC_PAYMENTS_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless delete-item --name "/$USC_BACKEND_NAME" --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
+    akeyless target delete --name "$TARGET_DB_NAME" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless target delete --name "$TARGET_AZURE" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless target delete --name "$TARGET_AWS" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
     akeyless target delete --name "$TARGET_PAYMENTS" --force-deletion --profile "$AKEYLESS_PROFILE" >/dev/null 2>&1 || true
@@ -249,16 +284,61 @@ normalize_vault_addresses_for_gateway
 export VAULT_TOKEN
 export AKEYLESS_PROFILE
 
+# Pre-load env file from a previous run so Azure/AWS creds are available for the reconcile step
+# (akeyless-setup.sh writes the env file; on first run these will be picked up from the shell)
+if [[ -f "$AKEYLESS_DEMO_ENV_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$AKEYLESS_DEMO_ENV_FILE"
+fi
+
 if ! vault status -address="$LOCAL_VAULT_ADDR_BACKEND" >/dev/null 2>&1 || ! vault status -address="$LOCAL_VAULT_ADDR_PAYMENTS" >/dev/null 2>&1; then
     run "start vault dev servers" bash "$SCRIPT_DIR/setup-vault-dev.sh"
 fi
 
+if [[ "$ENABLE_DB_DEMO" == "true" ]]; then
+    echo "=== bootstrap demo-mysql user ==="
+    kubectl exec -n akeyless deployment/demo-mysql -- \
+        mysql -uroot -p"${MYSQL_PASSWORD}" -e \
+        "CREATE USER IF NOT EXISTS '${MYSQL_ROTATED_USER}'@'%' IDENTIFIED BY '${MYSQL_ROTATED_INITIAL_PASS}';
+         ALTER USER '${MYSQL_ROTATED_USER}'@'%' IDENTIFIED BY '${MYSQL_ROTATED_INITIAL_PASS}';
+         GRANT SELECT ON ${MYSQL_DB_NAME}.* TO '${MYSQL_ROTATED_USER}'@'%'; FLUSH PRIVILEGES;" \
+        2>/dev/null
+    echo "demo-mysql user '${MYSQL_ROTATED_USER}' ensured"
+    echo "--- exit=0 ---"
+fi
+
 cloud_setup_output="$(bash "$SCRIPT_DIR/setup-cloud-and-k8s-demo.sh")"
 printf '%s\n' "$cloud_setup_output"
-eval "$(printf '%s\n' "$cloud_setup_output" | awk '/^export (ENABLE_AWS_DEMO|ENABLE_AZURE_DEMO|AWS_REGION|AWS_DEMO_SECRET_NAME|AWS_USC_PREFIX|AZURE_VAULT_NAME|AZURE_STATIC_SECRET_NAME|AZURE_ROTATED_SECRET_NAME)=/')"
+eval "$(printf '%s\n' "$cloud_setup_output" | awk '/^export (ENABLE_AWS_DEMO|ENABLE_AZURE_DEMO|AWS_REGION|AWS_DEMO_SECRET_NAME|AWS_USC_PREFIX|AZURE_VAULT_NAME|AZURE_STATIC_SECRET_NAME|AZURE_ROTATED_SECRET_NAME|DEMO_APP_CLIENT_ID|AZURE_APP_KV_SECRET_NAME)=/')"
 refresh_aws_session_credentials
 
-run "reconcile akeyless demo resources" env AKEYLESS_GATEWAY_URL="$AKEYLESS_GATEWAY_URL" bash "$SCRIPT_DIR/akeyless-setup.sh"
+run "reconcile akeyless demo resources" env \
+    AKEYLESS_GATEWAY_URL="$AKEYLESS_GATEWAY_URL" \
+    ENABLE_AWS_DEMO="${ENABLE_AWS_DEMO:-false}" \
+    ENABLE_AZURE_DEMO="${ENABLE_AZURE_DEMO:-false}" \
+    AZURE_VAULT_NAME="${AZURE_VAULT_NAME:-}" \
+    AZURE_STATIC_SECRET_NAME="${AZURE_STATIC_SECRET_NAME:-}" \
+    AZURE_ROTATED_SECRET_NAME="${AZURE_ROTATED_SECRET_NAME:-}" \
+    DEMO_APP_CLIENT_ID="${DEMO_APP_CLIENT_ID:-}" \
+    AZURE_APP_KV_SECRET_NAME="${AZURE_APP_KV_SECRET_NAME:-}" \
+    AZURE_TENANT_ID="${AZURE_TENANT_ID:-}" \
+    AZURE_CLIENT_ID="${AZURE_CLIENT_ID:-}" \
+    AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET:-}" \
+    AWS_REGION="${AWS_REGION:-}" \
+    AWS_DEMO_SECRET_NAME="${AWS_DEMO_SECRET_NAME:-}" \
+    AWS_USC_PREFIX="${AWS_USC_PREFIX:-}" \
+    AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
+    AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
+    AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN:-}" \
+    ENABLE_DB_DEMO="$ENABLE_DB_DEMO" \
+    MYSQL_HOST="$MYSQL_HOST" \
+    MYSQL_PORT="$MYSQL_PORT" \
+    MYSQL_USER="$MYSQL_USER" \
+    MYSQL_PASSWORD="$MYSQL_PASSWORD" \
+    MYSQL_DB_NAME="$MYSQL_DB_NAME" \
+    MYSQL_ROTATED_USER="$MYSQL_ROTATED_USER" \
+    MYSQL_ROTATED_INITIAL_PASS="$MYSQL_ROTATED_INITIAL_PASS" \
+    bash "$SCRIPT_DIR/akeyless-setup.sh"
 source "$AKEYLESS_DEMO_ENV_FILE"
 
 demo_access_id="$(profile_field access_id)"
@@ -429,6 +509,59 @@ if [[ "${ENABLE_AZURE_DEMO:-false}" == "true" && "$azure_usc_verified" == "true"
     else
         echo "Azure rotation confirmed: secret value changed."
     fi
+    echo "--- exit=0 ---"
+fi
+
+# ── DB rotated secret verification ───────────────────────────────────────────
+if [[ "$ENABLE_DB_DEMO" == "true" ]]; then
+    echo "=== rotation verification db ==="
+
+    # rotated-secret get-value has no --gateway-url flag; use --profile only
+    BEFORE_DB_JSON="$(akeyless rotated-secret get-value \
+        --name "/$DB_ROTATED" \
+        --profile "$AKEYLESS_PROFILE" 2>/dev/null || echo '{}')"
+    BEFORE_DB_PASS="$(printf '%s' "$BEFORE_DB_JSON" \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get("value",{}); print(v.get("password") if isinstance(v,dict) else "UNAVAILABLE")' 2>/dev/null || echo UNAVAILABLE)"
+    echo "Before rotation password (hint): ${BEFORE_DB_PASS:0:4}..."
+
+    echo "Triggering DB rotation via Gateway..."
+    trigger_rotated_secret "$DB_ROTATED"
+    sleep 5
+
+    AFTER_DB_JSON="$(akeyless rotated-secret get-value \
+        --name "/$DB_ROTATED" \
+        --profile "$AKEYLESS_PROFILE" 2>/dev/null || echo '{}')"
+    AFTER_DB_PASS="$(printf '%s' "$AFTER_DB_JSON" \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get("value",{}); print(v.get("password") if isinstance(v,dict) else "UNAVAILABLE")' 2>/dev/null || echo UNAVAILABLE)"
+    echo "After rotation password (hint) : ${AFTER_DB_PASS:0:4}..."
+
+    # Verify old password is rejected and new password works
+    if kubectl exec -n akeyless deployment/demo-mysql -- \
+        mysql -u"$MYSQL_ROTATED_USER" -p"$BEFORE_DB_PASS" -e "SELECT 1;" "$MYSQL_DB_NAME" >/dev/null 2>&1; then
+        echo "WARNING: old password still works — rotation may not have changed it." >&2
+    else
+        echo "Old password correctly rejected."
+    fi
+
+    if kubectl exec -n akeyless deployment/demo-mysql -- \
+        mysql -u"$MYSQL_ROTATED_USER" -p"$AFTER_DB_PASS" -e "SELECT 1;" "$MYSQL_DB_NAME" >/dev/null 2>&1; then
+        echo "New password accepted — DB rotation confirmed."
+    else
+        echo "WARNING: new password rejected — rotation may have failed." >&2
+    fi
+
+    # Verify synced value appeared in payments Vault
+    export VAULT_ADDR="$LOCAL_VAULT_ADDR_PAYMENTS"
+    VAULT_DB_PASS="$(vault kv get -format=json "$DB_ROTATED_VAULT_PATH" 2>/dev/null \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["data"]["data"].get("password","UNAVAILABLE"))' \
+        2>/dev/null || echo UNAVAILABLE)"
+    echo "Vault payments sync (hint)     : ${VAULT_DB_PASS:0:4}..."
+    if [[ "$VAULT_DB_PASS" == "$AFTER_DB_PASS" ]]; then
+        echo "Vault payments sync confirmed: rotated password matches."
+    else
+        echo "WARNING: Vault payments secret does not match rotated password (may need sync propagation)." >&2
+    fi
+
     echo "--- exit=0 ---"
 fi
 

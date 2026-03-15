@@ -19,11 +19,12 @@
 9. [CHAPTER 4] Read Secrets via USC (~1:00)
 10. [CHAPTER 5] Bi-Directional Secret Sync (~2:15)
 11. [CHAPTER 6] HashiCorp Vault Proxy (~1:30)
-12. [CHAPTER 7] Extend MVG to AWS and Azure Key Vault (~1:15)
-13. [CHAPTER 7b] Automated Secret Rotation — Compliance Story (~1:45)
-14. [CHAPTER 8] RBAC — Access Denied (~1:30)
-15. [CHAPTER 9] Audit Trail (~1:00)
-16. [CLOSING SLIDE] Wrap Up (~0:30)
+12. [CHAPTER 7a] Extend MVG to AWS and Azure Key Vault (~1:15)
+13. [CHAPTER 7b] Azure App Registration Rotation — Zero App Changes (~1:45)
+14. [CHAPTER 7c] Database Rotation → Vault Sync (~1:30)
+15. [CHAPTER 8] RBAC — Access Denied (~1:30)
+16. [CHAPTER 9] Audit Trail (~1:00)
+17. [CLOSING SLIDE] Wrap Up (~0:30)
 
 ---
 
@@ -109,25 +110,26 @@ vault CLI  ───────────────────────
                                                                       ▼
                               https://hvp.akeyless.io ─→ Akeyless Control Plane
                                                                       │
-akeyless CLI ──→ USC / MVG ──→ Akeyless Gateway ─┬─→ Vault Target ─→ Vault KV
+akeyless CLI ──→ USC / MVG ──→ Akeyless Gateway ─┬─→ Vault Target ─→ Vault KV (x2)
                                                   ├─→ AWS Target ─→ AWS Secrets Manager
-                                                  └─→ Azure Target ─→ Azure Key Vault
+                                                  ├─→ Azure Target ─→ Azure Key Vault
+                                                  └─→ DB Target ─→ MySQL
                                                                       │
                               Both paths ──→ Akeyless RBAC + Audit Log
-                              Rotation  ──→ Gateway writes new value back to each vault
+                              Rotation  ──→ Gateway rotates credential → syncs to KV / Vault
 ```
 
 **Narration:**
 
-Here's what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds connections to the backends you want to govern: in our case, two Vault targets, one AWS target, and one Azure Key Vault target. The current product surface for MVG is USC, so when you do a USC read through the Akeyless CLI, the request goes through the Akeyless control plane, down to the Gateway, and into whichever backend actually holds the secret.
+Here's what the plumbing looks like. In your environment — in this demo it's a Kubernetes cluster — you're running an Akeyless Gateway. That Gateway holds connections to the backends you want to govern: two Vault targets, one AWS target, one Azure Key Vault target, and one MySQL target for the rotation demos. The current product surface for MVG is USC, so when you do a USC read through the Akeyless CLI, the request goes through the Akeyless control plane, down to the Gateway, and into whichever backend actually holds the secret.
 
 One topology clarification: this demo uses a single Gateway because everything is in one environment. In production, you typically deploy one Gateway per private location or region, close to each local Vault cluster and nearby workloads.
 
 For the vault CLI path, Akeyless exposes a public endpoint that speaks the native Vault HTTP API. Your vault client doesn't know the difference.
 
-For rotation, the Gateway is also the write path. When Akeyless triggers a rotation, it generates a new credential and writes it back to the external vault through the same Gateway connection — no rotation scripts, no additional infrastructure.
+For rotation, the Gateway is the rotation write path. When Akeyless triggers a rotation, it generates a new credential at the source — calling the Microsoft Graph API for an Azure App Registration, or issuing an ALTER USER for a MySQL account — and then syncs the new value to every governed secret store associated with that rotated secret. No rotation scripts, no per-vault cron jobs, no custom Lambda functions.
 
-In both cases, every operation hits the same Akeyless control plane and produces the same audit log entry. That's the key point.
+In every case, every operation hits the same Akeyless control plane and produces the same audit log entry. That's the key point.
 
 ---
 
@@ -145,14 +147,15 @@ In both cases, every operation hits the same Akeyless control plane and produces
 > 4. Read secrets from both Vaults via Akeyless USC
 > 5. Create secrets via Akeyless or Vault and keep them synchronized
 > 6. Use the `vault` CLI unchanged via HashiCorp Vault Proxy
-> 7. Extend MVG to AWS Secrets Manager and Azure Key Vault
-> 7b. Automated secret rotation — Akeyless rotates and writes back to each vault
+> 7a. Extend MVG to AWS Secrets Manager and Azure Key Vault
+> 7b. Rotate an Azure App Registration client secret — synced to Key Vault, zero app changes
+> 7c. Rotate a MySQL database password — synced to HashiCorp Vault via USC
 > 8. One RBAC policy denies access across Vault, AWS, and Azure
 > 9. One audit trail covers every governed backend and every rotation event
 
 **Narration:**
 
-Here's what we're going to cover. Two separate Vault clusters remain the core story, and then we'll extend that same governance layer to AWS Secrets Manager and Azure Key Vault — including automated rotation. Let's get into it.
+Here's what we're going to cover. Two separate Vault clusters remain the core story, and then we'll extend that same governance layer to AWS Secrets Manager and Azure Key Vault — including automated rotation that covers both cloud credentials and database passwords. Let's get into it.
 
 ---
 
@@ -399,7 +402,7 @@ Same command. Same output. Zero code changes. Zero changes to scripts, pipelines
 
 ---
 
-## [CHAPTER 7]: Extend MVG to AWS Secrets Manager and Azure Key Vault
+## [CHAPTER 7a]: Extend MVG to AWS Secrets Manager and Azure Key Vault
 
 **Duration:** ~1:15
 
@@ -425,13 +428,13 @@ Up to this point, the demo has been intentionally Vault-first. That's the main u
 
 Now I'll switch to AWS Secrets Manager. Same Akeyless CLI session. `akeyless usc list` on the AWS connector. There is the AWS secret. `akeyless usc get` — retrieved through the same control plane, governed by the same policy model, logged in the same audit trail.
 
-Now Azure Key Vault. `akeyless usc list` on the Azure connector. There is the secret in the demo Key Vault. `akeyless usc get` — same story.
+Now Azure Key Vault. `akeyless usc list` on the Azure connector. There is the static secret in the demo Key Vault. `akeyless usc get` — same story.
 
 So this is the real point of MVG. HashiCorp Vault, AWS Secrets Manager, Azure Key Vault — governed from one Akeyless control plane with one RBAC model and one audit log. You can start with isolated Vault clusters, then extend the exact same governance layer to cloud secrets managers without introducing a migration project first.
 
 ---
 
-## [CHAPTER 7b]: Automated Secret Rotation — Compliance Story
+## [CHAPTER 7b]: Azure App Registration Rotation — Zero App Changes
 
 **Duration:** ~1:45
 
@@ -440,72 +443,127 @@ So this is the real point of MVG. HashiCorp Vault, AWS Secrets Manager, Azure Ke
 Terminal showing:
 
 ```bash
-# Before rotation — current value in HashiCorp Vault
-vault kv get -field=api_key secret/myapp/api-key
-# Output: akl-demo-api-key-12345   (the original seeded value)
+# Show the demo app's current credentials in Azure AD
+az ad app credential list \
+  --id "$DEMO_APP_CLIENT_ID" \
+  --query '[].{hint:hint,endDateTime:endDateTime}' \
+  -o table
+# Output: one credential, old hint
 
-# Update the Akeyless source secret, then sync it into Vault
-akeyless update-secret-val \
-  --name MVG-demo/vault-rotated-api-key \
-  --value '{"api_key":"vault-rotated-20260310"}' \
-  --format json
-
-akeyless static-secret-sync \
-  --name MVG-demo/vault-rotated-api-key \
-  --usc-name MVG-demo/vault-usc-backend \
-  --remote-secret-name "secret/myapp/api-key" \
-  --gateway-url https://<gateway>:8000
-
-# After sync — Akeyless wrote the new value back to Vault
-vault kv get -field=api_key secret/myapp/api-key
-# Output: <newly generated value>   (different from before)
-
-# Same Akeyless update + sync flow for AWS and Azure
-akeyless update-secret-val \
-  --name MVG-demo/aws-rotated-secret \
-  --value '{"api_key":"aws-rotated-20260310"}' \
-  --format json
-
-akeyless static-secret-sync \
-  --name MVG-demo/aws-rotated-secret \
-  --usc-name MVG-demo/aws-usc \
-  --remote-secret-name "demo/mvg/aws/payments-api-key" \
-  --gateway-url https://<gateway>:8000
-
-akeyless update-secret-val \
-  --name MVG-demo/azure-rotated-api-key \
-  --value "azure-rotated-20260310"
-
-akeyless static-secret-sync \
-  --name MVG-demo/azure-rotated-api-key \
+# Check what's currently in Azure Key Vault for this app
+akeyless usc get \
   --usc-name MVG-demo/azure-usc \
-  --remote-secret-name "demo-azure-rotated-api-key" \
-  --gateway-url https://<gateway>:8000
-```
+  --secret-id demo-app-client-secret
 
-Then show the Azure Key Vault secret value before and after.
+# Trigger rotation via the Gateway rotation API
+DEMO_TOKEN=$(akeyless auth \
+  --access-id "$READONLY_ACCESS_ID" \
+  --access-key "$READONLY_ACCESS_KEY" \
+  --access-type access_key --json \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+curl -sk -X POST "${AKEYLESS_GW}/api/v2/rotate-secret" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"/MVG-demo/azure-app-rotated-secret\",\"token\":\"$DEMO_TOKEN\"}"
+
+sleep 5
+
+# New credential is visible in Azure AD
+az ad app credential list \
+  --id "$DEMO_APP_CLIENT_ID" \
+  --query '[].{hint:hint,endDateTime:endDateTime}' \
+  -o table
+# Output: new credential, new hint, new expiry
+
+# And automatically synced to Key Vault via USC
+akeyless usc get \
+  --usc-name MVG-demo/azure-usc \
+  --secret-id demo-app-client-secret
+# Output: updated value matching the new credential
+```
 
 **Narration:**
 
-Here is the feature that gets the most traction with compliance teams — PCI-DSS, SOC 2, ISO 27001 all require secret updates that can be pushed consistently into every backend teams rely on. In a multi-vault environment, that traditionally means custom update scripts per vault type, each with its own scheduling, error handling, and audit trail. It is an operational nightmare at any scale.
+Now for the rotation story — and this is where compliance teams typically lean forward in their seats.
 
-Akeyless solves this by owning the source secret centrally, then syncing the current value back into every governed backend. Let me show you what that looks like in practice.
+I have a demo application registered in Azure AD — `demo-akeyless-mvg-target`. Its client secret is the credential it uses to authenticate to other services. This is the kind of credential that PCI-DSS and SOC 2 require you to rotate on a schedule. Traditionally, that means a custom Azure Function or a scheduled pipeline that calls the Graph API, updates the app registration, and then somehow distributes the new credential to every service that needs it.
 
-Here is the current value of `api-key` in our backend HashiCorp Vault — the one we seeded at the start of the demo. I'm going to ask Akeyless to rotate it now.
+Let me show you what Akeyless does instead.
 
-I update the Akeyless source secret at `MVG-demo/vault-rotated-api-key`, then sync it through the Vault USC.
+First I'll list the current credentials on this app. You can see the hint and the expiry.
 
-Now I'll go back to the Vault CLI and read the same secret.
+Now I'll trigger a rotation. A single API call to the Gateway. That's it.
 
-The value changed. Akeyless wrote the new secret back into the Vault KV path through the Gateway, and the old value is gone. No rotation script in Vault. No cron job with `vault write`. Akeyless owns the secret value and the sync path.
+Five seconds. Now let me check the app's credentials again. New hint. New expiry. The old credential is gone.
 
-Now I'll do the same update and sync for the AWS Secrets Manager secret and the Azure Key Vault secret.
+Now let me check Azure Key Vault. The `demo-app-client-secret` secret — which is synced to this rotated secret via the Azure USC — has been updated automatically. The consuming application just reads from Key Vault. It doesn't know a rotation happened. It doesn't need to be restarted. The new credential is just there.
 
-The same mechanism governs all three backends. One source secret in Akeyless, synced into every external vault you associate with it. When the source value changes, the new value lands in HashiCorp Vault, AWS Secrets Manager, and Azure Key Vault immediately. USC also returns the updated value.
+This is the zero-app-changes story. The rotation happened at the source — in Azure AD — and propagated to the governed store automatically. No custom Azure Function. No pipeline. No distribution problem. One rotation declaration in Akeyless, and the entire lifecycle is handled.
 
-Let me put a real number on this. A financial services customer used this pattern to manage rotation across thousands of Azure Key Vault secrets that their services depend on for compliance. Previously that required a fleet of Azure Functions running on a custom schedule with hand-rolled error handling and a separate audit log. MVG replaced the entire fleet with rotation policies declared once in Akeyless, applied to every secret, with every rotation event in the same audit trail as every read and every denial.
+---
 
-That's not just governance — that's a compliance control you can actually prove.
+## [CHAPTER 7c]: Database Rotation → Vault Sync
+
+**Duration:** ~1:30
+
+**On screen:**
+
+Terminal showing:
+
+```bash
+# Show current rotated password (hint only)
+akeyless rotated-secret get-value \
+  --name /MVG-demo/db-rotated-password \
+  --profile demo
+# Output: {"value":{"username":"akl_demo_user","password":"InitialPass2026!"}}
+
+# The demo user can log in with this password
+kubectl exec -n akeyless deployment/demo-mysql -- \
+  mysql -u akl_demo_user -p'InitialPass2026!' -e "SELECT 'connected' AS status;" demo
+
+# Trigger rotation via the Gateway rotation API
+curl -sk -X POST "${AKEYLESS_GW}/api/v2/rotate-secret" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"/MVG-demo/db-rotated-password\",\"token\":\"$DEMO_TOKEN\"}"
+
+sleep 5
+
+# Old password is now rejected
+kubectl exec -n akeyless deployment/demo-mysql -- \
+  mysql -u akl_demo_user -p'InitialPass2026!' -e "SELECT 1;" demo
+# Output: ERROR 1045 (28000): Access denied
+
+# Get the new password from Akeyless
+akeyless rotated-secret get-value \
+  --name /MVG-demo/db-rotated-password \
+  --profile demo
+# Output: new password value
+
+# And it's also in the payments Vault, immediately
+export VAULT_ADDR='http://127.0.0.1:8202'
+vault kv get secret/payments/db-rotated-password
+# Output: same password as Akeyless just showed
+```
+
+**Narration:**
+
+Here's the second rotation example — and this one makes the point that the rotation engine is backend-agnostic.
+
+I have a MySQL service account — `akl_demo_user` — whose password is managed by Akeyless. Let me grab the current value. There's the password. The user can log in with it.
+
+Now I trigger rotation. Same API call as before, different rotated secret name.
+
+Five seconds. Now let me try to log in with the old password. Denied. The database rejected it because Akeyless already issued an `ALTER USER` and changed it.
+
+Let me get the new password from Akeyless. There it is.
+
+Now here's the governance part. This rotated secret is also synced to `secret/payments/db-rotated-password` in the payments HashiCorp Vault via the payments USC. Let me check.
+
+Same value. The application reading its database credential from the payments Vault — the same Vault the payments team has been using all along — gets the current password automatically. It doesn't need to call the Akeyless API. It reads from Vault, just like before.
+
+Two completely different rotation backends in this demo. Azure App Registration, using the Microsoft Graph API. MySQL, using an ALTER USER statement. The same Akeyless rotation engine handled both, wrote results back to their respective governed stores — Azure Key Vault and HashiCorp Vault — and every event is in the same audit trail.
+
+That is the compliance story. One rotation engine, every backend, one log.
 
 ---
 
@@ -520,31 +578,40 @@ Terminal showing:
 ```bash
 # Authenticate as the denied identity
 akeyless auth \
-  --access-id <DENIED_ACCESS_ID> \
-  --access-key '<DENIED_ACCESS_KEY>'
+  --access-id "$DENIED_ACCESS_ID" \
+  --access-key "$DENIED_ACCESS_KEY" \
+  --access-type access_key
 
 # Attempt backend Vault — denied
 akeyless usc get \
   --usc-name MVG-demo/vault-usc-backend \
-  --secret-id myapp/db-password
+  --secret-id myapp/db-password \
+  --gateway-url "$AKEYLESS_GW" \
+  --token "$denied_token"
 # Output: Unauthorized
 
 # Attempt payments Vault — also denied
 akeyless usc get \
   --usc-name MVG-demo/vault-usc-payments \
-  --secret-id payments/stripe-key
+  --secret-id payments/stripe-key \
+  --gateway-url "$AKEYLESS_GW" \
+  --token "$denied_token"
 # Output: Unauthorized
 
 # Attempt AWS secret — also denied
 akeyless usc get \
   --usc-name MVG-demo/aws-usc \
-  --secret-id demo/mvg/aws/payments-api-key
+  --secret-id demo/mvg/aws/payments-api-key \
+  --gateway-url "$AKEYLESS_GW" \
+  --token "$denied_token"
 # Output: Unauthorized
 
 # Attempt Azure Key Vault secret — also denied
 akeyless usc get \
   --usc-name MVG-demo/azure-usc \
-  --secret-id payments-api-key
+  --secret-id payments-api-key \
+  --gateway-url "$AKEYLESS_GW" \
+  --token "$denied_token"
 # Output: Unauthorized
 ```
 
@@ -556,11 +623,11 @@ Governance isn't just visibility — it's enforcement. Let me show you what that
 
 I'll authenticate as a denied identity. This identity has a single Akeyless role with a `deny` capability applied to every connector path in this demo — backend Vault, payments Vault, AWS, and Azure Key Vault.
 
-`akeyless auth`. Credentials accepted — this is a valid identity.
+Credentials accepted — this is a valid identity.
 
 Now `akeyless usc get` on the backend database credential. Denied. The request never reached Vault.
 
-Now `akeyless usc get` on the payments Stripe key. Also denied. The AWS secret. Also denied. The Azure Key Vault secret. Also denied.
+Now the payments Stripe key. Also denied. The AWS secret. Also denied. The Azure Key Vault secret. Also denied.
 
 One Akeyless policy blocked access across Vault, AWS, and Azure simultaneously. I didn't update any Vault ACL policy. I didn't touch AWS IAM. I didn't touch Azure RBAC for the consuming user. I changed one Akeyless role and every governed backend enforced it immediately.
 
@@ -581,17 +648,22 @@ Browser showing the Akeyless console Logs page, with a filtered view showing log
 - USC create (backend, Chapter 5a)
 - Native Vault write picked up by payments USC (Chapter 5b)
 - HVP vault kv list and get operations (Chapter 6)
-- AWS and Azure reads from Chapter 7
-- Rotation events from Chapter 7b — each with timestamp, secret name, and triggering identity
+- AWS and Azure reads from Chapter 7a
+- Azure App Registration rotation event from Chapter 7b — timestamp, secret name, triggering identity, write-back confirmation to Key Vault
+- MySQL rotation event from Chapter 7c — timestamp, secret name, write-back confirmation to payments Vault
 - Four denied USC get attempts from Chapter 8 — all with status "Denied"
 
 **Narration:**
 
 Last stop — the audit trail. One log for every governed backend, and for every rotation event.
 
-Here's everything from this session. The Vault discovery calls from Chapter 3. The Vault reads in Chapter 4. The create through the backend connector in 5a. The write we made natively in the payments Vault in 5b. The HVP vault CLI calls from Chapter 6. The AWS and Azure reads from Chapter 7. Down here, the rotation events from Chapter 7b — timestamped, showing which secret was rotated, what triggered it, and confirmation the write-back succeeded. And finally, the denial attempts from Chapter 8 — Vault, AWS, Azure — all in one place.
+Here's everything from this session. The Vault discovery calls from Chapter 3. The Vault reads in Chapter 4. The create through the backend connector in 5a. The write we made natively in the payments Vault in 5b. The HVP vault CLI calls from Chapter 6. The AWS and Azure reads from Chapter 7a.
 
-HashiCorp Vault, AWS Secrets Manager, Azure Key Vault. One log. Every operation — reads, writes, rotations, denials, regardless of which tool triggered it or which backend held the secret — is in this single view. Forwardable to your SIEM. Filterable by identity, by action, by path, by backend. This is what a CISO actually needs.
+Down here are the rotation events. The Azure App Registration rotation from Chapter 7b — timestamped, showing the secret name, the identity that triggered it, and a record that the new value was synced back to Azure Key Vault. And the MySQL rotation from Chapter 7c — same format, confirming the new password was written to the database and synced to the payments Vault.
+
+And finally the denial attempts from Chapter 8 — Vault, AWS, Azure — all with status Denied.
+
+HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, MySQL. One log. Every operation — reads, writes, rotations, denials, regardless of which tool triggered it or which backend held the secret — is in this single view. Forwardable to your SIEM. Filterable by identity, by action, by path, by backend. This is what a CISO actually needs.
 
 ---
 
@@ -605,7 +677,8 @@ HashiCorp Vault, AWS Secrets Manager, Azure Key Vault. One log. Every operation 
 >
 > - Centralized RBAC, audit, and visibility across Vault and cloud secrets managers
 > - MVG for Akeyless-native governance across Vault, AWS, and Azure Key Vault
-> - Automated rotation writes new values back to each external vault — no rotation scripts
+> - Automated rotation — Azure App Registrations, database passwords, any governed backend
+> - Rotated values sync automatically to every governed secret store via USC
 > - HVP keeps the Vault API exactly as it is
 > - No migration required — adopt by namespace, environment, team, or platform
 >
@@ -615,6 +688,10 @@ HashiCorp Vault, AWS Secrets Manager, Azure Key Vault. One log. Every operation 
 
 **Narration:**
 
-So that's the full picture. Two separate Vault clusters as the core use case, extended to AWS Secrets Manager and Azure Key Vault through the same Akeyless control plane — with automated rotation writing new values back to each external vault on a compliance-friendly schedule. MVG and HVP are two different entry points into that control plane — one for teams adopting Akeyless-native governance, one for teams keeping the vault CLI exactly as it is. Both give you centralized RBAC, one audit trail, and one visibility layer across every connected backend — without migrating a single secret or changing a single workflow.
+So that's the full picture. Two separate Vault clusters as the core use case, extended to AWS Secrets Manager and Azure Key Vault through the same Akeyless control plane — with automated rotation across both cloud credentials and database passwords, writing results back to every governed store on a compliance-friendly schedule.
+
+MVG and HVP are two different entry points into that control plane — one for teams adopting Akeyless-native governance, one for teams keeping the vault CLI exactly as it is. Rotation is a third dimension: the same Gateway that reads and writes your secrets also rotates them at the source and syncs the new values back — no custom scripts, no separate pipelines, no per-vault cron jobs.
+
+All of it — reads, writes, rotations, denials — produces entries in the same audit trail. That is the full governance story.
 
 If you want to try this yourself, the free tier at console.akeyless.io is a good place to start, and the full documentation for both USC and HVP is at docs.akeyless.io. Thanks for watching.

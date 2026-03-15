@@ -1,0 +1,75 @@
+# demo-mysql.yaml
+#
+# Deploys a standalone MySQL 8.0 instance in the akeyless namespace for the
+# DB rotation demo (Chapter 7d). Keeping it in the akeyless namespace avoids
+# cross-namespace NetworkPolicy issues with the Akeyless Gateway.
+#
+# Deploy:
+#   kubectl apply -f demo/demo-mysql.yaml
+#
+# Then set these env vars before running akeyless-setup.sh:
+#   export ENABLE_DB_DEMO=true
+#   export MYSQL_HOST=demo-mysql.akeyless.svc.cluster.local
+#   export MYSQL_USER=root
+#   export MYSQL_PASSWORD=DemoRoot@2026!
+#   export MYSQL_DB_NAME=demo
+#   export MYSQL_ROTATED_USER=akl_demo_user
+#   export MYSQL_ROTATED_INITIAL_PASS=InitialPass2026!
+#
+# After deploying, create the demo user once:
+#   kubectl exec -n akeyless deployment/demo-mysql -- \
+#     mysql -uroot -p'DemoRoot@2026!' -e \
+#     "CREATE USER IF NOT EXISTS 'akl_demo_user'@'%' IDENTIFIED BY 'InitialPass2026!';
+#      GRANT SELECT ON demo.* TO 'akl_demo_user'@'%'; FLUSH PRIVILEGES;"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-mysql
+  namespace: akeyless
+  labels:
+    app: demo-mysql
+    demo: mvg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-mysql
+  template:
+    metadata:
+      labels:
+        app: demo-mysql
+        demo: mvg
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "DemoRoot@2026!"
+        - name: MYSQL_DATABASE
+          value: "demo"
+        ports:
+        - containerPort: 3306
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-mysql
+  namespace: akeyless
+  labels:
+    app: demo-mysql
+    demo: mvg
+spec:
+  selector:
+    app: demo-mysql
+  ports:
+  - port: 3306
+    targetPort: 3306
