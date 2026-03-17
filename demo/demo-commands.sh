@@ -174,6 +174,17 @@ cat ~/.vault-token   # show the <Access Id>..<Access Key> token format
 vault kv get secret/myapp/db-password
 vault kv get secret/myapp/api-key
 
+# Run vault status to show an error proving we are using Akeyless backend
+vault status
+
+# Error checking seal status: Error making API request.
+
+# URL: GET https://hvp.akeyless.io/v1/sys/seal-status
+# Code: 404. Errors:
+
+# * route entry not found or unsupported path. See the API docs for the appropriate API endpoints to use
+
+
 export VAULT_ADDR="$ORIGINAL_VAULT_ADDR"
 
 
