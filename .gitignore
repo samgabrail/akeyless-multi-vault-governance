@@ -40,3 +40,5 @@ terraform.rc
 demo/.akeyless-demo.env
 firebase-debug.log
 excalidraw.log
+
+.playwright-mcp
