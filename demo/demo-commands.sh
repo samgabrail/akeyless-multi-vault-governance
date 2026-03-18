@@ -9,17 +9,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # ENV — set these before the webinar (run once in your on-screen terminal)
 # ─────────────────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "${SCRIPT_DIR}/demo/.akeyless-demo.env" 2>/dev/null \
+  || source "${SCRIPT_DIR}/.akeyless-demo.env" 2>/dev/null \
+  || { echo "ERROR: .akeyless-demo.env not found. Run akeyless-setup.sh first."; }
 export VAULT_ADDR_BACKEND='http://127.0.0.1:8200'
 export VAULT_ADDR_PAYMENTS='http://127.0.0.1:8202'
 export LOCAL_VAULT_TOKEN='root'
-export AKEYLESS_GW='https://192.168.1.82:8000'
-export AKEYLESS_PROFILE='demo'
-export USC_BACKEND='MVG-demo/vault-usc-backend'
-export USC_PAYMENTS='MVG-demo/vault-usc-payments'
-export ROTATED_AZURE_APP='MVG-demo/azure-app-rotated-secret'
-export DB_ROTATED='MVG-demo/db-rotated-password'
-export DENIED_ACCESS_ID='p-xzdtj47phxl5am'
-export DENIED_ACCESS_KEY='KLFVvXCsGgJ1RKQYxpyimVZT14kEkkAQhZSOVe1zQo8='
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,16 +102,12 @@ vault kv get secret/myapp/api-key
 #   • MESSAGE: One RBAC policy governs access across every connected secrets manager.
 
 # CLI: Trigger a denied access attempt to show enforcement in real time
-DENIED_TOKEN=$(akeyless auth \
-  --access-id "$DENIED_ACCESS_ID" \
-  --access-key "$DENIED_ACCESS_KEY" \
-  --access-type access_key --json 2>/dev/null \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+DENIED_TOKEN=$(akeyless auth --access-id "$DENIED_ACCESS_ID" --access-key "$DENIED_ACCESS_KEY" --access-type access_key --json 2>/dev/null  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
 
 akeyless usc get \
-  --usc-name "$USC_BACKEND" \
+  --usc-name "MVG-demo/vault-usc-backend" \
   --secret-id "secret/myapp/db-password" \
-  --gateway-url "$AKEYLESS_GW" \
+  --gateway-url "https://192.168.1.82:8000" \
   --token "$DENIED_TOKEN"
 # Expected: permission denied
 
