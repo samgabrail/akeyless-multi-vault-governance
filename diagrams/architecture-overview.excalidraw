@@ -1,0 +1,52 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "elements": [
+    {"type":"text","id":"title","x":200,"y":10,"text":"Akeyless Multi-Vault Governance","fontSize":26,"fontFamily":1,"strokeColor":"#1e1e1e"},
+    {"type":"text","id":"subtitle","x":290,"y":45,"text":"Architecture Overview","fontSize":18,"fontFamily":1,"strokeColor":"#757575"},
+
+    {"type":"rectangle","id":"cp-zone","x":40,"y":75,"width":820,"height":130,"backgroundColor":"#e5dbff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#8b5cf6","strokeWidth":1,"opacity":30},
+    {"type":"text","id":"cp-label","x":55,"y":82,"text":"Akeyless Control Plane (SaaS)","fontSize":16,"fontFamily":1,"strokeColor":"#6d28d9"},
+    {"type":"rectangle","id":"rbac","x":60,"y":110,"width":160,"height":55,"backgroundColor":"#d0bfff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#8b5cf6","strokeWidth":2,"label":{"text":"RBAC Engine","fontSize":16,"fontFamily":1}},
+    {"type":"rectangle","id":"audit","x":250,"y":110,"width":150,"height":55,"backgroundColor":"#fff3bf","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#f59e0b","strokeWidth":2,"label":{"text":"Audit Log","fontSize":16,"fontFamily":1}},
+    {"type":"rectangle","id":"rotation","x":430,"y":110,"width":180,"height":55,"backgroundColor":"#d0bfff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#8b5cf6","strokeWidth":2,"label":{"text":"Rotation Engine","fontSize":16,"fontFamily":1}},
+    {"type":"rectangle","id":"hvp","x":640,"y":110,"width":200,"height":55,"backgroundColor":"#c3fae8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#06b6d4","strokeWidth":2,"label":{"text":"HVP Endpoint","fontSize":16,"fontFamily":1}},
+
+    {"type":"arrow","id":"cp-gw","x":450,"y":205,"width":0,"height":45,"points":[[0,0],[0,45]],"strokeColor":"#8b5cf6","strokeWidth":3,"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"type":"rectangle","id":"gw-zone","x":200,"y":260,"width":500,"height":80,"backgroundColor":"#dbe4ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","strokeWidth":1,"opacity":30},
+    {"type":"text","id":"gw-zone-label","x":215,"y":265,"text":"Your Private Network","fontSize":14,"fontFamily":1,"strokeColor":"#2563eb"},
+    {"type":"rectangle","id":"gw","x":300,"y":278,"width":300,"height":50,"backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","strokeWidth":2,"label":{"text":"Akeyless Gateway (K8s)","fontSize":18,"fontFamily":1}},
+
+    {"type":"arrow","id":"gw-left","x":370,"y":340,"width":-160,"height":55,"points":[[0,0],[-160,55]],"strokeColor":"#4a9eed","strokeWidth":2,"startArrowhead":null,"endArrowhead":"arrow"},
+    {"type":"arrow","id":"gw-right","x":530,"y":340,"width":160,"height":55,"points":[[0,0],[160,55]],"strokeColor":"#4a9eed","strokeWidth":2,"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"type":"rectangle","id":"vault-zone","x":30,"y":405,"width":360,"height":170,"backgroundColor":"#d3f9d8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#22c55e","strokeWidth":1,"opacity":30},
+    {"type":"text","id":"vault-zone-label","x":45,"y":412,"text":"HashiCorp Vault Clusters","fontSize":16,"fontFamily":1,"strokeColor":"#15803d"},
+    {"type":"rectangle","id":"v1","x":50,"y":445,"width":155,"height":50,"backgroundColor":"#b2f2bb","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#22c55e","strokeWidth":2,"label":{"text":"Vault Backend","fontSize":16,"fontFamily":1}},
+    {"type":"text","id":"v1-port","x":82,"y":500,"text":"port 8200","fontSize":14,"fontFamily":1,"strokeColor":"#22c55e"},
+    {"type":"rectangle","id":"v2","x":220,"y":445,"width":155,"height":50,"backgroundColor":"#b2f2bb","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#22c55e","strokeWidth":2,"label":{"text":"Vault Payments","fontSize":16,"fontFamily":1}},
+    {"type":"text","id":"v2-port","x":252,"y":500,"text":"port 8202","fontSize":14,"fontFamily":1,"strokeColor":"#22c55e"},
+    {"type":"text","id":"v-note","x":80,"y":540,"text":"KV v2 -- secrets stay in Vault","fontSize":14,"fontFamily":1,"strokeColor":"#15803d"},
+
+    {"type":"rectangle","id":"cloud-zone","x":510,"y":405,"width":350,"height":170,"backgroundColor":"#dbe4ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","strokeWidth":1,"opacity":30},
+    {"type":"text","id":"cloud-label","x":525,"y":412,"text":"Cloud & Database Targets","fontSize":16,"fontFamily":1,"strokeColor":"#2563eb"},
+    {"type":"rectangle","id":"aws","x":530,"y":445,"width":145,"height":50,"backgroundColor":"#ffd8a8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#f59e0b","strokeWidth":2,"label":{"text":"AWS Secrets\nManager","fontSize":14,"fontFamily":1}},
+    {"type":"rectangle","id":"azure","x":700,"y":445,"width":140,"height":50,"backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#4a9eed","strokeWidth":2,"label":{"text":"Azure Key\nVault","fontSize":14,"fontFamily":1}},
+    {"type":"rectangle","id":"mysql","x":615,"y":515,"width":140,"height":45,"backgroundColor":"#c3fae8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#06b6d4","strokeWidth":2,"label":{"text":"MySQL DB","fontSize":16,"fontFamily":1}},
+    {"type":"text","id":"mysql-note","x":640,"y":562,"text":"(rotation target)","fontSize":14,"fontFamily":1,"strokeColor":"#06b6d4"},
+
+    {"type":"rectangle","id":"cli-akl","x":30,"y":265,"width":140,"height":50,"backgroundColor":"#d0bfff","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#8b5cf6","strokeWidth":2,"label":{"text":"akeyless CLI","fontSize":16,"fontFamily":1}},
+    {"type":"text","id":"cli-akl-sub","x":50,"y":318,"text":"MVG / USC","fontSize":14,"fontFamily":1,"strokeColor":"#8b5cf6"},
+    {"type":"arrow","id":"cli-akl-arrow","x":100,"y":265,"width":60,"height":-100,"points":[[0,0],[60,-100]],"strokeColor":"#8b5cf6","strokeWidth":2,"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"type":"rectangle","id":"cli-vault","x":750,"y":265,"width":110,"height":50,"backgroundColor":"#c3fae8","fillStyle":"solid","roundness":{"type":3},"strokeColor":"#06b6d4","strokeWidth":2,"label":{"text":"vault CLI","fontSize":16,"fontFamily":1}},
+    {"type":"text","id":"cli-vault-sub","x":775,"y":318,"text":"HVP","fontSize":14,"fontFamily":1,"strokeColor":"#06b6d4"},
+    {"type":"arrow","id":"cli-vault-arrow","x":805,"y":265,"width":-35,"height":-100,"points":[[0,0],[-35,-100]],"strokeColor":"#06b6d4","strokeWidth":2,"startArrowhead":null,"endArrowhead":"arrow"},
+
+    {"type":"text","id":"footer","x":140,"y":600,"text":"Production: one Gateway per private network / region","fontSize":14,"fontFamily":1,"strokeColor":"#757575"}
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}
