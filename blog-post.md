@@ -19,11 +19,19 @@ This post is the companion to a joint webinar with Netser Heruty, Director of So
 
 ## The Governance Gap
 
+### Vault Is Load-Bearing Infrastructure
+
 HashiCorp Vault does not just run in enterprise environments. It gets woven into them. CI/CD pipelines reference Vault endpoints. Kubernetes secrets flow through Vault sidecars. Platform engineers build internal tools that assume Vault is present. Teams securely store everything from database credentials and API keys to SSH keys and encryption keys. Over time, Vault becomes load-bearing infrastructure that dozens of sensitive systems depend on in ways that only surface when you try to change it.
+
+### Migration Is Rarely Achievable
 
 Akeyless had conversations with Gartner about this problem as early as three years ago, and Gartner's strategy explicitly acknowledges that other vaults will remain "for the foreseeable future." Some cloud vendors' built-in services do not even expose an API to work with anything but their native secret manager. Complete migration to a single secrets platform is rarely achievable.
 
+### Fragmented Access Controls and Audit Logs
+
 Meanwhile, the governance gaps remain open. Role-based access control is scoped per vault cluster or namespace with no global policy model. Audit logs are fragmented by backend. SIEM integration requires per-cluster configuration. Managing secrets across cloud environments becomes a manual coordination problem, and ensuring only authorized users can access sensitive credentials requires maintaining access policies independently in every system. A CISO asking "who has had access to the production database credentials in the last 90 days" gets an answer that involves manually correlating data from multiple systems, if it is possible to answer at all.
+
+### The Real-World Cost
 
 The scale of this problem is not abstract. One Fortune 10 enterprise Netser worked with had thousands of Azure Key Vaults spread across the organization. Their rotation strategy was manual: recurring calendar invites sent to each Key Vault owner reminding them to rotate secrets every 90 days. The compliance overhead alone was enormous, and the actual rotation compliance rate was far below 100 percent.
 
@@ -43,11 +51,17 @@ The net result is that organizations often know they have a governance gap but a
 
 Akeyless is a secrets management control plane that can wrap existing infrastructure, including Vault, and govern it without requiring that infrastructure to be replaced. It is not a HashiCorp Vault alternative in the traditional sense; it is a governance layer that works alongside Vault and cloud providers like AWS Secrets Manager and Azure Key Vault.
 
+### Zero-Knowledge Architecture and Distributed Fragments Cryptography
+
 A critical architectural property underpins this: Akeyless uses a zero-knowledge SaaS architecture built on patented Distributed Fragments Cryptography (DFC). Encryption keys are split into fragments distributed across multiple cloud environments and a hardware security module (HSM), ensuring that no single party, including Akeyless, ever holds complete encryption keys. Your sensitive data and credentials remain encrypted and are never exposed in clear text. The control plane enforces enterprise-grade security (RBAC, audit, automatic secret rotation) without ever holding your secret values in the clear.
+
+### How It Works
 
 The security model is straightforward: Vault becomes a secret store that Akeyless governs. The secrets do not move. The Vault cluster does not change. What moves is the control plane. Access decisions, audit logging, and policy enforcement now happen in Akeyless, while the underlying storage and retrieval continue to happen in Vault. This comprehensive approach enables organizations to maintain a strong security posture across cloud environments without compromising security or disrupting existing workflows.
 
 As Netser puts it, "Getting the actual client side, the applications to rewrite the integration or code, that's typically the hardest part with onboarding secrets management use cases." Both MVG and HVP solve that problem. Neither requires applications to change how they retrieve secrets.
+
+### MVG as a Permanent Architecture
 
 MVG is not necessarily an intermediate step on the way to full migration. For many organizations, keeping secrets in their existing backends under Akeyless governance is the permanent architecture. Some Vault instances cannot be replaced. MVG works as a long-term governance layer over those backends indefinitely.
 
@@ -89,9 +103,13 @@ The Gateway is the only component inside your network, reducing operational over
 
 ## Automated Rotation and Sync
 
+### The 90-Day Compromise
+
 Automatic secret rotation is consistently under-solved in enterprise security. Compliance frameworks (PCI-DSS, SOC 2, ISO 27001) all require secrets rotation for authorized users who require secrets to access sensitive systems, but traditional implementations involve custom rotation scripts per secret type, each with its own scheduling, error handling, and audit trail. Azure, notably, does not give you built-in native rotation for App Registrations.
 
 As Netser points out, "90 days is also a compromise, something you do just so you don't annoy the users." Once rotation is automated, you can rotate weekly or daily without interfering with workloads. Regulatory requirements are tightening toward shorter intervals.
+
+### How Akeyless Rotated Secrets Work
 
 Akeyless Rotated Secrets let you declare the rotation intent once (which credential, which backend, how often) and Akeyless handles the rest. The Gateway authenticates to the target, generates a new credential, updates it at the source, and syncs the new value into every governed secret store associated with that rotation.
 
@@ -103,6 +121,8 @@ In the demo, this plays out across two backends:
 
 When configuring sync, you can reference an existing secret name in the target backend. The first rotation ensures both sides match. Consuming applications that already read from that path do not need to change anything.
 
+### Bidirectional Sync and Expanding Connectors
+
 MVG is also genuinely bidirectional with no replication lag. Secrets created through Akeyless land directly in Vault KV. Secrets created directly in Vault are immediately visible through MVG. There is no polling interval or sync job. This matters enormously for brownfield deployments: every existing secret is immediately governable the moment you connect a Gateway. HashiCorp's Vault Secrets Sync and CyberArk offer similar concepts, but both implement one-way sync that can lead to split-brain scenarios.
 
 The connector ecosystem continues expanding. The Azure Key Vault connector manages certificates alongside secrets. Conjur support has been added, and GitHub MVG (managing GitHub secrets across organizations, repositories, and environments) is coming soon.
@@ -111,15 +131,25 @@ The connector ecosystem continues expanding. The Azure Key Vault connector manag
 
 The live demo had five acts, driven primarily through the Akeyless console UI.
 
-**Act 1: Multi-Cluster Governance and Bidirectional Sync.** We showed the Targets view with two Vault targets, an Azure target, and a MySQL target, all connected through one Gateway. The MVG product view listed all instances and their secrets in one place. We created a secret in Akeyless and confirmed it appeared immediately in Vault. Then we created a new version in the Vault UI and confirmed it appeared instantly in Akeyless. No sync job, no lag.
+### Act 1: Multi-Cluster Governance and Bidirectional Sync
 
-**Act 2: Automated Rotation and Sync.** We triggered Azure App Registration rotation and confirmed the new password appeared in both Akeyless and Azure Key Vault. Then we triggered MySQL rotation and confirmed the new password synced to the payments Vault. Two different credential systems handled by the same rotation engine.
+We showed the Targets view with two Vault targets, an Azure target, and a MySQL target, all connected through one Gateway. The MVG product view listed all instances and their secrets in one place. We created a secret in Akeyless and confirmed it appeared immediately in Vault. Then we created a new version in the Vault UI and confirmed it appeared instantly in Akeyless. No sync job, no lag.
 
-**Act 3: HVP, Zero Disruption.** We changed `VAULT_ADDR` to `hvp.akeyless.io` and ran standard `vault kv get` commands. Identical output. We also ran `vault status`, which returned an error, proving this is not actually Vault behind the scenes.
+### Act 2: Automated Rotation and Sync
 
-**Act 4: RBAC, One Policy, Every Cluster.** We authenticated as a denied identity and attempted a USC read. Result: 403 Forbidden. One role blocked access across both clusters and every connected secrets manager.
+We triggered Azure App Registration rotation and confirmed the new password appeared in both Akeyless and Azure Key Vault. Then we triggered MySQL rotation and confirmed the new password synced to the payments Vault. Two different credential systems handled by the same rotation engine.
 
-**Act 5: Unified Audit Trail.** Every operation from the session appeared in the Akeyless Logs tab: discovery, reads, sync writes, rotation events, and the denied access attempt. All attributed, timestamped, and in one view. These logs can be forwarded to Splunk or other log aggregators.
+### Act 3: HVP with Zero Disruption
+
+We changed `VAULT_ADDR` to `hvp.akeyless.io` and ran standard `vault kv get` commands. Identical output. We also ran `vault status`, which returned an error, proving this is not actually Vault behind the scenes.
+
+### Act 4: RBAC with One Policy Across Every Cluster
+
+We authenticated as a denied identity and attempted a USC read. Result: 403 Forbidden. One role blocked access across both clusters and every connected secrets manager.
+
+### Act 5: Unified Audit Trail
+
+Every operation from the session appeared in the Akeyless Logs tab: discovery, reads, sync writes, rotation events, and the denied access attempt. All attributed, timestamped, and in one view. These logs can be forwarded to Splunk or other log aggregators.
 
 ## Getting Started
 
